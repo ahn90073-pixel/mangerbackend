@@ -21,7 +21,7 @@ Backend مستقل للوحة إدارة المتاجر والتجار، مبن�
    cp .dev.vars.example .dev.vars
    ```
 3. أدخل `DATABASE_URL` و`JWT_SECRET` الفعليين محليًا في `.dev.vars` (لا ترفع هذا الملف إلى Git). يجب أن يطابق `JWT_SECRET` السر المستخدم في Backend المتجر كي تكون الرموز متوافقة.
-4. ضع نطاق الواجهة الفعلي ضمن `ADMIN_CORS_ORIGINS` في `wrangler.toml` أو إعدادات Cloudflare، مفصولًا بفواصل. الإعداد الافتراضي يسمح بمنشأ Vite المحلي وCapacitor فقط.
+4. ضع نطاق الواجهة الفعلي ضمن `ADMIN_CORS_ORIGINS` في `wrangler.toml` أو إعدادات Cloudflare، مفصولًا بفواصل. الإعداد الافتراضي يسمح بمنشأ Vite المحلي وأصول Capacitor الافتراضية (`https://localhost` على Android و`capacitor://localhost` على iOS) و`ionic://localhost`.
 5. أضف أول مسؤول يدويًا إلى حساب موجود:
    ```bash
    DATABASE_URL='…' node scripts/grant-platform-admin.js admin@example.com --confirm
@@ -50,7 +50,7 @@ npm run build
 
 - `build` يستخدم `wrangler deploy --dry-run` فقط؛ لا ينشر إلى Cloudflare.
 - يوجد Workflow نشر يدوي `Deploy Mange admin backend` يستهدف Worker `mangerbackend`. يحتاج أسرار GitHub `DATABASE_URL`, `JWT_SECRET`, `CLOUDFLARE_API_TOKEN`, و`CLOUDFLARE_ACCOUNT_ID`، ولا يطلب قيمها عبر المحادثة.
-- يشغّل Workflow ترحيل الإدارة بعد اختيار `apply_admin_migration=true` فقط. الترحيل يضيف جداول وحقول مراجعة وسجل تدقيق إلى قاعدة المتجر، لذا اختبره وخذ نسخة احتياطية قبل الموافقة على تشغيله في Production.
+- يمكن نشر Worker بإعداداته وأسراره مع `apply_admin_migration=false` دون اتصال أو تغيير قاعدة البيانات. يشغّل Workflow ترحيل الإدارة فقط عند اختيار `apply_admin_migration=true` صراحةً. الترحيل يضيف جداول وحقول مراجعة وسجل تدقيق إلى قاعدة المتجر، لذا اختبره وخذ نسخة احتياطية قبل الموافقة على تشغيله في Production.
 - اضبط قائمة `ADMIN_CORS_ORIGINS` في إعداد Worker لتشمل نطاق واجهة Mange الفعلي. لا توجد بيانات أو أسرار إنتاج داخل المستودع.
 
 ## API
@@ -93,9 +93,9 @@ npm run build
 
 ## حقول الواجهة وملاحظات التكامل
 
-الـAPI يرجع أسماء الحقول التي تحتاجها الشاشات مثل `companyName`, `merchantName`, `totalSales`, `totalOrders`, `commissionType`, `commissionValue`, `settledAmount`, `pendingProducts`، ويستخدم UUID الحقيقي للتاجر والمنتج والطلب بدل معرّفات Mock مثل `VND-001`. صفحات Mange الحالية ما زالت تقرأ `mockData`؛ يلزم ربط `DashboardContext` بطلبات هذا الـAPI لاستخدام بيانات Production.
+يرجع الـAPI أسماء الحقول التي تحتاجها الشاشات مثل `companyName`, `merchantName`, `totalSales`, `totalOrders`, `commissionType`, `commissionValue`, `settledAmount`, `pendingProducts`، ويستخدم UUID الحقيقي للتاجر والمنتج والطلب. واجهة Mange متصلة الآن بمسارات الإدارة وتستخدم بيانات الخادم بدل قوائم Mock، مع شاشة دخول وجلسة Bearer محفوظة محليًا.
 
-قاعدة المتجر الحالية افتراضيًا تستخدم `EGP`، بينما أداة تنسيق الواجهة الحالية تعرض `SAR`. يرسل API رمز العملة، لكن يجب توحيد عملة قاعدة البيانات وتنسيق الواجهة قبل الاعتماد المالي. حقل المدينة غير موجود في سجل الشركة/المالك المركزي الحالي ويرجع `null` إلى أن يضاف مصدر موثوق له.
+قاعدة المتجر وواجهة Mange تستخدمان حاليًا `EGP` افتراضيًا، ويرسل API رمز العملة؛ يجب توحيد إعداد العملة مع بيانات الطلبات قبل الاعتماد المالي متعدد العملات. حقل المدينة غير موجود في سجل الشركة/المالك المركزي الحالي ويرجع `null` إلى أن يضاف مصدر موثوق له.
 
 إعداد العمولة الثابتة يحافظ على النموذج الحالي في Mange: قيمة ثابتة واحدة عند احتساب الرصيد/السند، وليست مضروبة بعدد الطلبات. غيّر ذلك بالتزامن في الواجهة والسياسة المالية إذا كانت نية العمل مختلفة.
 

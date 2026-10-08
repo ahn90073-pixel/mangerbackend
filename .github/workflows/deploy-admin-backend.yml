@@ -42,15 +42,6 @@ jobs:
           npm run lint
           npm run build
 
-      - name: Require explicit database-migration approval
-        env:
-          APPLY_ADMIN_MIGRATION: ${{ inputs.apply_admin_migration }}
-        run: |
-          if [[ "$APPLY_ADMIN_MIGRATION" != "true" ]]; then
-            echo "::error::Set apply_admin_migration=true only after approving the production database migration."
-            exit 1
-          fi
-
       - name: Check required secret names are configured
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -66,6 +57,7 @@ jobs:
           done
 
       - name: Apply Mange admin database migration
+        if: ${{ inputs.apply_admin_migration }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
