@@ -26,6 +26,19 @@ app.use('*', cors({
 }));
 
 app.get('/health', (c) => c.json({ success: true, service: 'mange-admin-backend', status: 'healthy' }));
+app.get('/api/admin', (c) => c.json({
+  success: true,
+  service: 'mange-admin-backend',
+  public: true,
+  dashboard: '/api/admin/dashboard',
+  endpoints: [
+    '/api/admin/vendors',
+    '/api/admin/products',
+    '/api/admin/settlements',
+    '/api/admin/orders',
+    '/api/admin/audit-logs',
+  ],
+}));
 app.route('/api/admin/dashboard', dashboardRoutes);
 app.route('/api/admin/vendors', vendorRoutes);
 app.route('/api/admin/products', productRoutes);

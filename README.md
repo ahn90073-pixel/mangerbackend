@@ -49,7 +49,7 @@ npm run build
 
 ## API العامة
 
-كل المسارات أدناه تحت `/api/admin`، ولا تحتاج `Authorization` أو جلسة. الردود تستخدم `{ "success": true, "message": "…", "data": … }`. القوائم تقبل `page` و`limit` (الحد الأعلى 100).
+كل المسارات أدناه تحت `/api/admin`، ولا تحتاج `Authorization` أو جلسة. `GET /api/admin` يعيد فهرسًا عامًا بالمسارات، و`GET /api/admin/dashboard` يعيد بيانات لوحة التحكم. الردود تستخدم `{ "success": true, "message": "…", "data": … }`. القوائم تقبل `page` و`limit` (الحد الأعلى 100).
 
 | المسار | الاستخدام |
 |---|---|
