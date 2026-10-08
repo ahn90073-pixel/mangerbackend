@@ -1,0 +1,88 @@
+name: Deploy Mange admin backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_admin_migration:
+        description: Apply the additive Mange admin migration to the production database before deploying
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mangerbackend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrate and deploy mangerbackend
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests and build
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm test
+          npm run lint
+          npm run build
+
+      - name: Require explicit database-migration approval
+        env:
+          APPLY_ADMIN_MIGRATION: ${{ inputs.apply_admin_migration }}
+        run: |
+          if [[ "$APPLY_ADMIN_MIGRATION" != "true" ]]; then
+            echo "::error::Set apply_admin_migration=true only after approving the production database migration."
+            exit 1
+          fi
+
+      - name: Check required secret names are configured
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          for name in DATABASE_URL JWT_SECRET CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Apply Mange admin database migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
+
+      - name: Deploy Worker and set runtime secrets
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          command: deploy
+          secrets: |
+            DATABASE_URL
+            JWT_SECRET
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}

@@ -49,7 +49,9 @@ npm run build
 ```
 
 - `build` يستخدم `wrangler deploy --dry-run` فقط؛ لا ينشر إلى Cloudflare.
-- للنشر الفعلي، اربط هذا المستودع بحساب Cloudflare، ثم عيّن أسرار Worker `DATABASE_URL` و`JWT_SECRET` ومتغير `ADMIN_CORS_ORIGINS` في إعدادات Worker. لا توجد بيانات أو أسرار إنتاج داخل المستودع.
+- يوجد Workflow نشر يدوي `Deploy Mange admin backend` يستهدف Worker `mangerbackend`. يحتاج أسرار GitHub `DATABASE_URL`, `JWT_SECRET`, `CLOUDFLARE_API_TOKEN`, و`CLOUDFLARE_ACCOUNT_ID`، ولا يطلب قيمها عبر المحادثة.
+- يشغّل Workflow ترحيل الإدارة بعد اختيار `apply_admin_migration=true` فقط. الترحيل يضيف جداول وحقول مراجعة وسجل تدقيق إلى قاعدة المتجر، لذا اختبره وخذ نسخة احتياطية قبل الموافقة على تشغيله في Production.
+- اضبط قائمة `ADMIN_CORS_ORIGINS` في إعداد Worker لتشمل نطاق واجهة Mange الفعلي. لا توجد بيانات أو أسرار إنتاج داخل المستودع.
 
 ## API
 
