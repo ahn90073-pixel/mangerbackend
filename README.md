@@ -60,6 +60,7 @@ npm run build
 | `PATCH /vendors/:vendorId/commission` | حفظ `{ "type": "percentage" | "fixed", "value": 0 }` |
 | `GET /products?status=&q=&vendorId=&page=&limit=` | المنتجات المعلقة/المقبولة/المرفوضة |
 | `GET /products/active?olderThanDays=30&vendorId=&q=` | المنتجات المنشورة |
+| `PATCH /products/:vendorId/:productId` | تعديل تفاصيل منتج معلّق قبل المراجعة، بما فيها الاسم والصورة والوصف والسعر والمخزون والتصنيف |
 | `PATCH /products/:vendorId/:productId/review` | اعتماد `{ "decision": "approve" }` أو رفض مع `reason` |
 | `PATCH /products/:vendorId/:productId/keep` | إبقاء المنتج المنشور |
 | `DELETE /products/:vendorId/:productId` | أرشفة المنتج |
