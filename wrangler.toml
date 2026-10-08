@@ -8,4 +8,4 @@ DEFAULT_CURRENCY = "EGP"
 ADMIN_CORS_ORIGINS = "http://localhost:5173,http://localhost:4173,https://localhost,capacitor://localhost,ionic://localhost"
 
 [secrets]
-required = ["DATABASE_URL", "JWT_SECRET"]
+required = ["DATABASE_URL"]

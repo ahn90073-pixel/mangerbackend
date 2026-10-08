@@ -3,8 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Secure administration API for the Mange multi-vendor dashboard",
-  "engines": { "node": ">=20" },
+  "description": "Public administration API for the Mange multi-vendor dashboard",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir=dist",
@@ -13,7 +15,6 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
-    "bcryptjs": "^2.4.3",
     "hono": "^4.6.0"
   },
   "devDependencies": {

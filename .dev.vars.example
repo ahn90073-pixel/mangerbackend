@@ -1,3 +1,2 @@
 # Copy to .dev.vars locally and fill in values; never commit .dev.vars.
 DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
-JWT_SECRET=replace-with-a-long-random-secret

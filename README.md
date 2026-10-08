@@ -1,45 +1,40 @@
-# Backend إدارة Mange
+# Backend إدارة Mange (API عامة)
 
-Backend مستقل للوحة إدارة المتاجر والتجار، مبني على **Hono + Cloudflare Workers + Neon PostgreSQL**. يستخدم هوية المستخدمين والشركات نفسها الموجودة في Backend المتجر `tagerbackend`، لكنه يضيف API منفصلًا للمديرين ومخازن إعدادات العمولات والسدادات وسجل التدقيق.
+Backend مستقل للوحة إدارة Mange، مبني على **Hono + Cloudflare Workers + Neon PostgreSQL**. يستخدم بيانات المتاجر والمنتجات والطلبات والسدادات المخزنة في قاعدة Tager، مع إبقاء الجداول التجارية داخل tenant schemas.
 
-> لا يحتوي المشروع على بيانات تجريبية أو حساب مدير افتراضي، ولا ينفذ تحويلات بنكية. إنشاء سند السداد هنا يسجل دفعة أكدها المدير خارجيًا فقط.
+> **تحذير وصول:** بناءً على اختيار مالك المشروع، كل مسارات الإدارة عامة ولا تتطلب حسابًا أو كلمة مرور أو Bearer token. أي شخص يصل إلى عنوان Worker يستطيع قراءة بيانات التجار والطلبات والعملاء والسدادات وسجل التدقيق، وكذلك اعتماد/رفض المنتجات وتغيير الحالات والعمولات وإنشاء/إلغاء سجلات السداد. قائمة CORS ليست حاجز مصادقة؛ يمكن استدعاء API مباشرةً من أدوات HTTP. لا تضع في هذه القاعدة بيانات لا تريد كشفها للعامة.
 
-## نطاق التكامل
+## النطاق
 
-- الهوية والصلاحيات تبقى مركزية في `public.users` و`public.company_members`.
-- كل تاجر هو شركة في `public.companies`، وتقرأ بيانات نشاطه من `tenant_schema_name` الخاص به؛ لا يقرأ هذا الخادم منتجات التاجر من الجداول العامة القديمة.
-- تسجيل الدخول يتطلب أن يكون `users.is_platform_admin = TRUE`. لا يوجد endpoint عام لإنشاء مدير.
-- المصادقة Bearer JWT متوافقة مع Tager (`HS256` و`JWT_SECRET` المشترك). هذا الخادم يصدر رمزًا إداريًا لمدة 12 ساعة، ويتحقق من صلاحية المدير من قاعدة البيانات في كل طلب محمي؛ إلغاء امتياز المدير يسري فورًا.
-- تهيئة حقول مراجعة المنتجات تتم من migration. كما توجد دالة idempotent تهيئ مخطط أي شركة جديدة عند أول استعمال إداري له.
+- لا توجد شاشة تسجيل دخول أو endpoint لإنشاء حساب. مسارات `/api/admin/auth/*` غير منشورة.
+- الجداول المركزية للحسابات والشركات تبقى في `public.users` و`public.companies`؛ بيانات النشاط التجاري تُقرأ من schema الشركة المحدد في `tenant_schema_name`.
+- عمليات الإدارة تظل محكومة بالتحقق من المدخلات وحدود حساب السداد، لكنها متاحة لأي زائر دون هوية.
+- يُسجل سجل التدقيق `actor_user_id = NULL` للعمليات العامة مع وقت التنفيذ وعنوان IP ووكيل المستخدم؛ قراءة سجل التدقيق نفسها عامة.
+- لا ينفذ API تحويلًا ماليًا خارجيًا. إنشاء السداد يسجل سندًا فقط.
 
 ## المتطلبات والإعداد
 
-1. يلزم أن تكون migrations الخاصة بمستودع `tagerbackend` رقم **0001 ثم 0002 ثم 0003** مطبقة على قاعدة Neon نفسها.
+1. يلزم تطبيق migrations الخاصة بمستودع `tagerbackend` رقم **0001 ثم 0002 ثم 0003** على قاعدة Neon نفسها، إضافة إلى migration الإدارة الموصوف أدناه.
 2. ثبّت الحزم:
    ```bash
    npm ci
    cp .dev.vars.example .dev.vars
    ```
-3. أدخل `DATABASE_URL` و`JWT_SECRET` الفعليين محليًا في `.dev.vars` (لا ترفع هذا الملف إلى Git). يجب أن يطابق `JWT_SECRET` السر المستخدم في Backend المتجر كي تكون الرموز متوافقة.
-4. ضع نطاق الواجهة الفعلي ضمن `ADMIN_CORS_ORIGINS` في `wrangler.toml` أو إعدادات Cloudflare، مفصولًا بفواصل. الإعداد الافتراضي يسمح بمنشأ Vite المحلي وأصول Capacitor الافتراضية (`https://localhost` على Android و`capacitor://localhost` على iOS) و`ionic://localhost`.
-5. أضف أول مسؤول يدويًا إلى حساب موجود:
-   ```bash
-   DATABASE_URL='…' node scripts/grant-platform-admin.js admin@example.com --confirm
-   ```
-   يجب أن يكون البريد تابعًا لحساب موجود في `public.users`. لا تكتب كلمة المرور أو قيمة JWT في ملفات المشروع. استخدم أداة إدارة أسرار موثوقة بدل وضعها في سجل shell عند التشغيل الفعلي.
-6. شغّل محليًا: `npm run dev`. فحص الصحة: `GET /health`.
+3. أدخل `DATABASE_URL` في `.dev.vars` محليًا ولا ترفع هذا الملف إلى Git.
+4. ضع نطاق الواجهة الفعلي ضمن `ADMIN_CORS_ORIGINS` في `wrangler.toml` أو إعدادات Cloudflare. الإعداد الافتراضي يسمح بمنشأ Vite المحلي وأصول Capacitor (`https://localhost` على Android و`capacitor://localhost` على iOS) و`ionic://localhost`. CORS لا يحمي API من الاستدعاءات المباشرة.
+5. شغّل محليًا: `npm run dev`. فحص الصحة: `GET /health`.
 
 ## قاعدة البيانات والترحيلات
 
-بعد تطبيق ترحيلات Tager الأساسية 0001–0003، طبّق ترحيل الإدارة مرة واحدة على **قاعدة اختبار أولًا**، ثم على القاعدة التي ستستخدمها بعد أخذ نسخة احتياطية:
+بعد تطبيق ترحيلات Tager الأساسية 0001–0003، طبّق ترحيل الإدارة على قاعدة اختبار أولًا، ثم على قاعدة الإنتاج بعد المراجعة والنسخة الاحتياطية:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
 ```
 
-الترحيل idempotent ولا يحذف بيانات التاجر. يضيف `admin_company_settings` و`admin_settlements` و`admin_audit_logs`، ويضيف حقول `rejection_reason`, `reviewed_at`, `reviewed_by`, `published_at`, `admin_kept`, `admin_archived_at` لجدول المنتجات داخل كل tenant schema. كما يسمح بحالة المنتج `rejected` ويحافظ على الحالات السابقة. لا تشغّل الترحيل على Production قبل اختباره ومراجعته.
+الترحيل idempotent ولا يحذف بيانات التاجر. يضيف `admin_company_settings` و`admin_settlements` و`admin_audit_logs`، وحقول مراجعة المنتجات داخل كل tenant schema، ويسمح بحالة المنتج `rejected`.
 
-## تشغيل وفحوصات
+## التشغيل والنشر
 
 ```bash
 npm ci
@@ -48,60 +43,35 @@ npm run lint
 npm run build
 ```
 
-- `build` يستخدم `wrangler deploy --dry-run` فقط؛ لا ينشر إلى Cloudflare.
-- يوجد Workflow نشر يدوي `Deploy Mange admin backend` يستهدف Worker `mangerbackend`. يحتاج أسرار GitHub `DATABASE_URL`, `JWT_SECRET`, `CLOUDFLARE_API_TOKEN`, و`CLOUDFLARE_ACCOUNT_ID`، ولا يطلب قيمها عبر المحادثة.
-- يمكن نشر Worker بإعداداته وأسراره مع `apply_admin_migration=false` دون اتصال أو تغيير قاعدة البيانات. يشغّل Workflow ترحيل الإدارة فقط عند اختيار `apply_admin_migration=true` صراحةً. الترحيل يضيف جداول وحقول مراجعة وسجل تدقيق إلى قاعدة المتجر، لذا اختبره وخذ نسخة احتياطية قبل الموافقة على تشغيله في Production.
-- اضبط قائمة `ADMIN_CORS_ORIGINS` في إعداد Worker لتشمل نطاق واجهة Mange الفعلي. لا توجد بيانات أو أسرار إنتاج داخل المستودع.
+- `build` يستخدم `wrangler deploy --dry-run` ولا ينشر إلى Cloudflare.
+- Workflow النشر اليدوي `Deploy Mange admin backend` يستهدف Worker `mangerbackend` ويحتاج GitHub Actions secrets: `DATABASE_URL`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+- يمكن نشر Worker مع `apply_admin_migration=false` دون تغيير قاعدة البيانات. لا تشغّل الترحيل في Production إلا بعد الموافقة عليه صراحةً.
 
-## API
+## API العامة
 
-كل المسارات أدناه تحت `/api/admin`. الردود تستخدم `{ "success": true, "message": "…", "data": … }`، وكل المسارات عدا `auth/login` تتطلب `Authorization: Bearer <token>` لمدير صالح. القوائم تقبل `page` و`limit` (الحد الأعلى 100).
+كل المسارات أدناه تحت `/api/admin`، ولا تحتاج `Authorization` أو جلسة. الردود تستخدم `{ "success": true, "message": "…", "data": … }`. القوائم تقبل `page` و`limit` (الحد الأعلى 100).
 
 | المسار | الاستخدام |
 |---|---|
-| `POST /auth/login` | دخول مدير بحقول `{ "email", "password" }` |
-| `GET /auth/me` | بيانات المدير الحالي والتحقق من الرمز |
 | `GET /dashboard` | مؤشرات المبيعات والطلبات والتجار والمنتجات والسدادات، أعلى التجار، وأحدث 5 طلبات |
-| `GET /vendors?q=&status=&page=&limit=` | قائمة التجار. `status`: `all`, `active`, `suspended`, `pending_approval` |
-| `GET /vendors/:vendorId` | بيانات التاجر مع آخر 10 طلبات وآخر 50 سندًا |
+| `GET /vendors?q=&status=&page=&limit=` | قائمة التجار؛ الحالة: `all`, `active`, `suspended`, `pending_approval` |
+| `GET /vendors/:vendorId` | بيانات التاجر وآخر الطلبات والسدادات |
 | `PATCH /vendors/:vendorId/status` | تحديث `{ "status": "active" | "suspended" | "pending_approval" }` |
-| `PATCH /vendors/:vendorId/commission` | حفظ `{ "type": "percentage" | "fixed", "value": 0 }`؛ النسبة من 0 إلى 100 |
-| `GET /products?status=&q=&vendorId=&page=&limit=` | مراجعة المنتجات. الحالات: `pending`, `approved`, `rejected`, `active`, `all` |
-| `GET /products/active?olderThanDays=30&vendorId=&q=` | المنتجات المنشورة، ويمكن قصرها على الأقدم من عدد أيام معين |
-| `PATCH /products/:vendorId/:productId/review` | اعتماد `{ "decision": "approve" }` أو رفض `{ "decision": "reject", "reason": "…" }` |
-| `PATCH /products/:vendorId/:productId/keep` | إبقاء المنتج المنشور في القائمة |
-| `DELETE /products/:vendorId/:productId` | أرشفة المنتج بدل الحذف الفيزيائي كي لا تنكسر الطلبات السابقة |
-| `GET /orders?status=&vendorId=&q=&page=&limit=` | بحث وتصفية الطلبات عبر tenant schemas |
-| `GET /settlements?status=&vendorId=&q=&page=&limit=` | قائمة السدادات؛ `all` يخفي الملغاة، ويمكن طلب `status=void` صراحةً |
-| `POST /settlements` | إنشاء سجل سداد؛ الحقول `vendorId`, `amount`, `period`, `method`, واختياريًا `currency` |
-| `PATCH /settlements/:id/status` | إتمام سند معلّق أو إلغاؤه منطقيًا (`completed` أو `void`) |
-| `GET /audit-logs?entityType=&action=&q=&page=&limit=` | سجل تغييرات المسؤولين ومعلومات المنفذ |
+| `PATCH /vendors/:vendorId/commission` | حفظ `{ "type": "percentage" | "fixed", "value": 0 }` |
+| `GET /products?status=&q=&vendorId=&page=&limit=` | المنتجات المعلقة/المقبولة/المرفوضة |
+| `GET /products/active?olderThanDays=30&vendorId=&q=` | المنتجات المنشورة |
+| `PATCH /products/:vendorId/:productId/review` | اعتماد `{ "decision": "approve" }` أو رفض مع `reason` |
+| `PATCH /products/:vendorId/:productId/keep` | إبقاء المنتج المنشور |
+| `DELETE /products/:vendorId/:productId` | أرشفة المنتج |
+| `GET /orders?status=&vendorId=&q=&page=&limit=` | جميع الطلبات عبر مخططات التجار، وتشمل خانة العميل التي قد تعرض الاسم أو البريد أو الهاتف |
+| `GET /settlements?status=&vendorId=&q=&page=&limit=` | سجلات السداد |
+| `POST /settlements` | إنشاء سند سجل؛ الحقول `vendorId`, `amount`, `period`, `method`, واختياريًا `currency` |
+| `PATCH /settlements/:id/status` | إتمام سجل أو إلغاؤه منطقيًا (`completed` أو `void`) |
+| `GET /audit-logs?entityType=&action=&q=&page=&limit=` | سجل عام يتضمن البريد المتاح وعناوين IP والتفاصيل |
 
-مثال إنشاء سند:
+## الحماية والقيود التقنية
 
-```json
-{
-  "vendorId": "UUID-الشركة",
-  "amount": 1250,
-  "period": "أكتوبر 2026",
-  "method": "تحويل بنكي",
-  "currency": "EGP"
-}
-```
-
-الخادم هو مصدر الحساب: يعيد/يسجل مبلغ العمولة والصافي، وينشئ مرجعًا فريدًا. أنواع طرق الدفع التي يستخدمها الواجهة الحالية (تحويل بنكي، شيك، إيداع نقدي) نصوص مقبولة. إنشاء السند بحالة `completed` يعني أن المسؤول سجّل دفعة تم تنفيذها خارجيًا؛ لا يوجد تكامل دفع.
-
-## حقول الواجهة وملاحظات التكامل
-
-يرجع الـAPI أسماء الحقول التي تحتاجها الشاشات مثل `companyName`, `merchantName`, `totalSales`, `totalOrders`, `commissionType`, `commissionValue`, `settledAmount`, `pendingProducts`، ويستخدم UUID الحقيقي للتاجر والمنتج والطلب. واجهة Mange متصلة الآن بمسارات الإدارة وتستخدم بيانات الخادم بدل قوائم Mock، مع شاشة دخول وجلسة Bearer محفوظة محليًا.
-
-قاعدة المتجر وواجهة Mange تستخدمان حاليًا `EGP` افتراضيًا، ويرسل API رمز العملة؛ يجب توحيد إعداد العملة مع بيانات الطلبات قبل الاعتماد المالي متعدد العملات. حقل المدينة غير موجود في سجل الشركة/المالك المركزي الحالي ويرجع `null` إلى أن يضاف مصدر موثوق له.
-
-إعداد العمولة الثابتة يحافظ على النموذج الحالي في Mange: قيمة ثابتة واحدة عند احتساب الرصيد/السند، وليست مضروبة بعدد الطلبات. غيّر ذلك بالتزامن في الواجهة والسياسة المالية إذا كانت نية العمل مختلفة.
-
-## الحماية والسجل
-
-- كلمات المرور لا تُعاد من API. كلمة المرور تتحقق عبر bcrypt، وJWT قصير الصلاحية.
-- جميع الاستعلامات عن القيم parameterized. أسماء tenant schema تأتي من قاعدة البيانات وتُفحص بتعبير `^tenant_[a-z0-9_]{1,54}$`، والجداول محددة بقائمة سماح.
-- تغييرات الحالة والعمولات ومراجعة المنتجات والسدادات تسجل في `public.admin_audit_logs`.
-- لا تحفظ أسرارًا أو رموزًا أو كلمات مرور في Git أو `.env` المرفوع. استخدم أسرار Cloudflare/GitHub عند النشر.
+- لا توجد مصادقة أو صلاحيات على مستوى API في وضع التشغيل الحالي؛ لا يعتبر CORS حماية أمنية.
+- الاستعلامات عن القيم parameterized، وأسماء tenant schemas تُفحص بتعبير `^tenant_[a-z0-9_]{1,54}$` والجداول بقائمة سماح.
+- العمولات والسدادات تخضع لقواعد التحقق والحساب على الخادم، لكن أي زائر يمكنه طلب التغييرات المسموحة عبر المسارات العامة.
+- لإعادة حماية API لاحقًا، يجب إعادة مصادقة الخادم وإعادة بوابة الدخول في الواجهة قبل إتاحة أي بيانات حساسة.
