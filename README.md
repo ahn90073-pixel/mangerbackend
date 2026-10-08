@@ -14,19 +14,19 @@ Backend مستقل للوحة إدارة Mange، مبني على **Hono + Cloudf
 
 ## المتطلبات والإعداد
 
-1. يلزم تطبيق migrations الخاصة بمستودع `tagerbackend` رقم **0001 ثم 0002 ثم 0003** على قاعدة Neon نفسها، إضافة إلى migration الإدارة الموصوف أدناه.
+1. يلزم تطبيق migrations الخاصة بمستودع `tagerbackend` رقم **0001 ثم 0002 ثم 0003 ثم 0004** على قاعدة Neon نفسها، إضافة إلى migration الإدارة الموصوف أدناه.
 2. ثبّت الحزم:
    ```bash
    npm ci
    cp .dev.vars.example .dev.vars
    ```
 3. أدخل `DATABASE_URL` في `.dev.vars` محليًا ولا ترفع هذا الملف إلى Git.
-4. ضع نطاق الواجهة الفعلي ضمن `ADMIN_CORS_ORIGINS` في `wrangler.toml` أو إعدادات Cloudflare. الإعداد الافتراضي يسمح بمنشأ Vite المحلي وأصول Capacitor (`https://localhost` على Android و`capacitor://localhost` على iOS) و`ionic://localhost`. CORS لا يحمي API من الاستدعاءات المباشرة.
+4. يرسل Worker ترويسة CORS عامة (`*`) بلا credentials لتعمل واجهة Mange العامة من الويب وAndroid WebView. CORS لا يحمي API من الاستدعاءات المباشرة.
 5. شغّل محليًا: `npm run dev`. فحص الصحة: `GET /health`.
 
 ## قاعدة البيانات والترحيلات
 
-بعد تطبيق ترحيلات Tager الأساسية 0001–0003، طبّق ترحيل الإدارة على قاعدة اختبار أولًا، ثم على قاعدة الإنتاج بعد المراجعة والنسخة الاحتياطية:
+بعد تطبيق ترحيلات Tager الأساسية 0001–0004، طبّق ترحيل الإدارة على قاعدة اختبار أولًا، ثم على قاعدة الإنتاج بعد المراجعة والنسخة الاحتياطية:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
@@ -64,6 +64,8 @@ npm run build
 | `PATCH /products/:vendorId/:productId/keep` | إبقاء المنتج المنشور |
 | `DELETE /products/:vendorId/:productId` | أرشفة المنتج |
 | `GET /orders?status=&vendorId=&q=&page=&limit=` | جميع الطلبات عبر مخططات التجار، وتشمل خانة العميل التي قد تعرض الاسم أو البريد أو الهاتف |
+| `GET /orders/:vendorId/:orderId` | تفاصيل العميل والعنوان والمنتجات والسعر والتاجر والشحنة المرتبطة بالطلب |
+| `PATCH /orders/:vendorId/:orderId` | تحديث `status` و`shipmentStatus` و`carrier` و`trackingNumber` و`shippingFee`. إلغاء طلب قبل الشحن يعيد مخزون عناصره، وتُسجل تغييرات الإدارة في سجل التدقيق. |
 | `GET /settlements?status=&vendorId=&q=&page=&limit=` | سجلات السداد |
 | `POST /settlements` | إنشاء سند سجل؛ الحقول `vendorId`, `amount`, `period`, `method`, واختياريًا `currency` |
 | `PATCH /settlements/:id/status` | إتمام سجل أو إلغاؤه منطقيًا (`completed` أو `void`) |

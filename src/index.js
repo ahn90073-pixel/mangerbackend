@@ -15,11 +15,7 @@ const app = new Hono();
 app.use('*', logger());
 app.use('*', secureHeaders());
 app.use('*', cors({
-  origin: (origin, c) => {
-    if (!origin) return '';
-    const allowlist = String(c.env.ADMIN_CORS_ORIGINS || '').split(',').map((value) => value.trim()).filter(Boolean);
-    return allowlist.includes(origin) ? origin : '';
-  },
+  origin: '*',
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   maxAge: 600,
