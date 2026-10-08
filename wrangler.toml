@@ -8,3 +8,7 @@ DEFAULT_CURRENCY = "EGP"
 
 [secrets]
 required = ["DATABASE_URL"]
+
+# Branch previews receive only a harmless default; never copy DATABASE_URL here.
+[previews.vars]
+DEFAULT_CURRENCY = "EGP"
