@@ -44,12 +44,16 @@ app.route('/api/admin/audit-logs', auditLogRoutes);
 
 app.notFound((c) => errorResponse('Route not found.', 404));
 app.onError((error, c) => {
+  const rawMessage = String(error?.message || '');
+  const safeMessage = /\b(select|insert|update|delete)\b/i.test(rawMessage)
+    ? 'Database query failed; details omitted.'
+    : rawMessage.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/ig, '[redacted-db-url]').slice(0, 300);
   const diagnostic = Object.fromEntries(
     ['name', 'code', 'severity', 'schema', 'table', 'column', 'constraint', 'position']
       .filter((key) => typeof error?.[key] === 'string' || typeof error?.[key] === 'number')
       .map((key) => [key, error[key]]),
   );
-  console.error('Unhandled API exception:', JSON.stringify({ path: c.req.path, ...diagnostic }));
+  console.error('Unhandled API exception:', JSON.stringify({ path: c.req.path, ...diagnostic, message: safeMessage }));
   return errorResponse(error?.status === 503 ? error.message : 'Internal server error.', error?.status || 500);
 });
 
