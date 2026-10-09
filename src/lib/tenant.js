@@ -1,5 +1,5 @@
 const TENANT_SCHEMA_RE = /^tenant_[a-z0-9_]{1,54}$/;
-const TENANT_TABLES = new Set(['products', 'categories', 'orders', 'order_items', 'customers', 'addresses', 'shipments']);
+const TENANT_TABLES = new Set(['products', 'categories', 'product_images', 'orders', 'order_items', 'customers', 'addresses', 'shipments']);
 const initializedSchemas = new Map();
 
 export function tenantTable(schemaName, tableName) {

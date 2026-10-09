@@ -27,6 +27,7 @@ test('roundMoney and initials handle numeric and Arabic names', () => {
 
 test('tenantTable quotes valid schema names and rejects unsafe identifiers', () => {
   assert.equal(tenantTable('tenant_example_a1b2c3d4', 'products'), '"tenant_example_a1b2c3d4"."products"');
+  assert.equal(tenantTable('tenant_example_a1b2c3d4', 'product_images'), '"tenant_example_a1b2c3d4"."product_images"');
   assert.throws(() => tenantTable('tenant_x; DROP SCHEMA public', 'products'), /Invalid tenant schema/);
   assert.throws(() => tenantTable('tenant_ok', 'users'), /Invalid tenant table/);
 });
