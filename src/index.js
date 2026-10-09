@@ -3,6 +3,9 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { errorResponse } from './lib/response.js';
+import { adminGuard } from './middleware/adminAuth.js';
+import authRoutes from './routes/auth.js';
+import employeeRoutes from './routes/employees.js';
 import dashboardRoutes from './routes/dashboard.js';
 import vendorRoutes from './routes/vendors.js';
 import productRoutes from './routes/products.js';
@@ -22,19 +25,21 @@ app.use('*', cors({
 }));
 
 app.get('/health', (c) => c.json({ success: true, service: 'mange-admin-backend', status: 'healthy' }));
-app.get('/api/admin', (c) => c.json({
+app.get('/api/admin', ...adminGuard, (c) => c.json({
   success: true,
   service: 'mange-admin-backend',
-  public: true,
+  role: c.get('adminUser').role,
   dashboard: '/api/admin/dashboard',
   endpoints: [
+    '/api/admin/auth/me',
+    '/api/admin/employees',
+    '/api/admin/dashboard',
     '/api/admin/vendors',
-    '/api/admin/products',
-    '/api/admin/settlements',
     '/api/admin/orders',
-    '/api/admin/audit-logs',
   ],
 }));
+app.route('/api/admin/auth', authRoutes);
+app.route('/api/admin/employees', employeeRoutes);
 app.route('/api/admin/dashboard', dashboardRoutes);
 app.route('/api/admin/vendors', vendorRoutes);
 app.route('/api/admin/products', productRoutes);

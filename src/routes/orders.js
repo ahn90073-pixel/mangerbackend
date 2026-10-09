@@ -6,6 +6,7 @@ import { listAdminOrders } from '../services/orderService.js';
 import { pagination, searchTerm, isUuid, isMoney, readJson } from '../lib/validation.js';
 import { tenantTable } from '../lib/tenant.js';
 import { writeAudit } from '../lib/audit.js';
+import { assignedGovernorates } from '../lib/access.js';
 
 const orders = new Hono();
 const orderStatuses = new Set(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned', 'refunded']);
@@ -35,9 +36,9 @@ export function validateOrderUpdate(body) {
   return errors;
 }
 
-async function loadCompany(db, vendorId) {
-  const rows = await db`
-    SELECT c.id, c.display_name, c.tenant_schema_name,
+async function loadCompany(db, vendorId, governorates = null) {
+  const rows = await db.query(
+    `SELECT c.id, c.display_name, c.tenant_schema_name, c.governorate,
       COALESCE(c.email, merchant.email) AS contact_email,
       merchant.full_name AS merchant_name,
       merchant.phone AS contact_phone
@@ -50,14 +51,16 @@ async function loadCompany(db, vendorId) {
       ORDER BY (cm.role = 'owner') DESC, cm.created_at ASC
       LIMIT 1
     ) merchant ON TRUE
-    WHERE c.id = ${vendorId}
-    LIMIT 1
-  `;
+    WHERE c.id = $1::uuid
+      AND ($2::text[] IS NULL OR c.governorate = ANY($2::text[]))
+    LIMIT 1`,
+    [vendorId, governorates],
+  );
   return rows[0] || null;
 }
 
-async function loadOrderDetails(db, vendorId, orderId) {
-  const company = await loadCompany(db, vendorId);
+async function loadOrderDetails(db, vendorId, orderId, governorates = null) {
+  const company = await loadCompany(db, vendorId, governorates);
   if (!company) return null;
   const orderTable = tenantTable(company.tenant_schema_name, 'orders');
   const itemTable = tenantTable(company.tenant_schema_name, 'order_items');
@@ -163,6 +166,7 @@ orders.get('/', ...adminGuard, async (c) => {
   const { page, limit, offset } = pagination(c, 20, 100);
   const data = await listAdminOrders(createDb(c.env), {
     page, limit, offset, status, companyId, q: searchTerm(c.req.query('q')),
+    governorates: assignedGovernorates(c.get('adminUser')),
   });
   return jsonResponse(ok(data));
 });
@@ -171,7 +175,7 @@ orders.get('/:vendorId/:orderId', ...adminGuard, async (c) => {
   const vendorId = c.req.param('vendorId');
   const orderId = c.req.param('orderId');
   if (!isUuid(vendorId) || !isUuid(orderId)) return errorResponse('Vendor or order ID must be a UUID.', 400);
-  const data = await loadOrderDetails(createDb(c.env), vendorId, orderId);
+  const data = await loadOrderDetails(createDb(c.env), vendorId, orderId, assignedGovernorates(c.get('adminUser')));
   if (!data) return errorResponse('Order not found.', 404);
   return jsonResponse(ok(data));
 });
@@ -186,7 +190,8 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
   if (errors.length) return errorResponse('يرجى مراجعة بيانات تحديث الطلب.', 400, errors);
 
   const db = createDb(c.env);
-  const company = await loadCompany(db, vendorId);
+  const governorates = assignedGovernorates(c.get('adminUser'));
+  const company = await loadCompany(db, vendorId, governorates);
   if (!company) return errorResponse('Vendor not found.', 404);
   const orderTable = tenantTable(company.tenant_schema_name, 'orders');
   const productTable = tenantTable(company.tenant_schema_name, 'products');
@@ -291,7 +296,7 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
     shippingFee: body.shippingFee ?? null,
     restockedProducts: updated.restocked_products,
   });
-  const data = await loadOrderDetails(db, vendorId, orderId);
+  const data = await loadOrderDetails(db, vendorId, orderId, governorates);
   return jsonResponse(ok(data, 'تم تحديث الطلب وبيانات الشحن.'));
 });
 

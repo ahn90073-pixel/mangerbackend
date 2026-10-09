@@ -7,8 +7,8 @@ compatibility_flags = ["nodejs_compat"]
 DEFAULT_CURRENCY = "EGP"
 
 [secrets]
-required = ["DATABASE_URL"]
+required = ["DATABASE_URL", "ADMIN_JWT_SECRET"]
 
-# Branch previews receive only a harmless default; never copy DATABASE_URL here.
+# Branch previews receive no production database credentials or signing secret.
 [previews.vars]
 DEFAULT_CURRENCY = "EGP"

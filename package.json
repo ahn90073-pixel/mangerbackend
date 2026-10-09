@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Public administration API for the Mange multi-vendor dashboard",
+  "description": "Role-scoped administration API for the Mange multi-vendor dashboard",
   "engines": {
     "node": ">=20"
   },
@@ -11,7 +11,8 @@
     "dev": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir=dist",
     "test": "node --test",
-    "lint": "node scripts/check-syntax.js"
+    "lint": "node scripts/check-syntax.js",
+    "admin:create-super": "node scripts/create-super-admin.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

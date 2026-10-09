@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createDb } from '../lib/db.js';
 import { calculateSettlementCommission, roundMoney } from '../lib/finance.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
-import { adminGuard } from '../middleware/adminAuth.js';
+import { superAdminGuard } from '../middleware/adminAuth.js';
 import { isMoney, isText, isUuid, pagination, paginated, readJson, searchTerm } from '../lib/validation.js';
 import { writeAudit } from '../lib/audit.js';
 import { getVendorSummaries } from '../services/vendorService.js';
@@ -10,7 +10,7 @@ import { getVendorSummaries } from '../services/vendorService.js';
 const settlements = new Hono();
 const statuses = new Set(['pending', 'completed', 'void']);
 
-settlements.get('/', ...adminGuard, async (c) => {
+settlements.get('/', ...superAdminGuard, async (c) => {
   const { page, limit, offset } = pagination(c, 20, 100);
   const status = c.req.query('status') || 'all';
   if (status !== 'all' && !statuses.has(status)) return errorResponse('Unsupported settlement status.', 400);
@@ -56,7 +56,7 @@ settlements.get('/', ...adminGuard, async (c) => {
   return jsonResponse(ok(paginated(items, total, page, limit)));
 });
 
-settlements.post('/', ...adminGuard, async (c) => {
+settlements.post('/', ...superAdminGuard, async (c) => {
   const parsed = await readJson(c);
   if (parsed.error) return parsed.error;
   const { vendorId, amount, period, method, currency } = parsed.body;
@@ -97,7 +97,7 @@ settlements.post('/', ...adminGuard, async (c) => {
   const actorId = c.get('adminUser').id;
   const [settlement] = await db`
     INSERT INTO public.admin_settlements
-      (company_id, amount, commission_amount, net_amount, currency, period, paid_at, status, method, reference, created_by)
+      (company_id, amount, commission_amount, net_amount, currency, period, paid_at, status, method, reference, created_by_admin_user_id)
     VALUES
       (${vendorId}, ${grossAmount}, ${commissionAmount}, ${netAmount}, ${currencyCode}, ${period.trim()}, NOW(), 'completed', ${method.trim()}, ${reference}, ${actorId})
     RETURNING id, company_id AS "vendorId", amount::numeric AS amount,
@@ -110,7 +110,7 @@ settlements.post('/', ...adminGuard, async (c) => {
   return jsonResponse(ok(settlement, 'Settlement voucher recorded.'), 201);
 });
 
-settlements.patch('/:id/status', ...adminGuard, async (c) => {
+settlements.patch('/:id/status', ...superAdminGuard, async (c) => {
   const id = c.req.param('id');
   if (!isUuid(id)) return errorResponse('Settlement ID must be a UUID.', 400);
   const parsed = await readJson(c);
