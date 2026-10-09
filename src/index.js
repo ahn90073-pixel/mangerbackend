@@ -44,7 +44,12 @@ app.route('/api/admin/audit-logs', auditLogRoutes);
 
 app.notFound((c) => errorResponse('Route not found.', 404));
 app.onError((error, c) => {
-  console.error('Unhandled API exception:', error?.code || error?.name || 'unknown');
+  const diagnostic = Object.fromEntries(
+    ['name', 'code', 'severity', 'schema', 'table', 'column', 'constraint', 'position']
+      .filter((key) => typeof error?.[key] === 'string' || typeof error?.[key] === 'number')
+      .map((key) => [key, error[key]]),
+  );
+  console.error('Unhandled API exception:', JSON.stringify({ path: c.req.path, ...diagnostic }));
   return errorResponse(error?.status === 503 ? error.message : 'Internal server error.', error?.status || 500);
 });
 
