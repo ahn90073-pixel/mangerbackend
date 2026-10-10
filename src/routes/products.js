@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createDb } from '../lib/db.js';
 import { tenantTable, listTenants } from '../lib/tenant.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
-import { adminGuard } from '../middleware/adminAuth.js';
+import { superAdminGuard } from '../middleware/adminAuth.js';
 import { pagination, paginated, readJson, searchTerm, isUuid, isText, isMoney } from '../lib/validation.js';
 import { writeAudit } from '../lib/audit.js';
 
@@ -117,19 +117,19 @@ async function getProductPage(db, c, forceStatus = null, view = 'review') {
   return { data: paginated(items, total, page, limit) };
 }
 
-products.get('/', ...adminGuard, async (c) => {
+products.get('/', ...superAdminGuard, async (c) => {
   const result = await getProductPage(createDb(c.env), c);
   if (result.error) return result.error;
   return jsonResponse(ok(result.data));
 });
 
-products.get('/active', ...adminGuard, async (c) => {
+products.get('/active', ...superAdminGuard, async (c) => {
   const result = await getProductPage(createDb(c.env), c, 'active', 'active');
   if (result.error) return result.error;
   return jsonResponse(ok(result.data));
 });
 
-products.patch('/:companyId/:productId', ...adminGuard, async (c) => {
+products.patch('/:companyId/:productId', ...superAdminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
@@ -229,7 +229,7 @@ products.patch('/:companyId/:productId', ...adminGuard, async (c) => {
   return jsonResponse(ok({ ...updated, imageUrl: body.imageUrl ?? '' }, 'Pending product updated.'));
 });
 
-products.patch('/:companyId/:productId/review', ...adminGuard, async (c) => {
+products.patch('/:companyId/:productId/review', ...superAdminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
@@ -245,10 +245,10 @@ products.patch('/:companyId/:productId/review', ...adminGuard, async (c) => {
   const table = tenantTable(tenant.tenant_schema_name, 'products');
   const reviewer = c.get('adminUser').id;
   const rows = decision === 'approve'
-    ? await db.query(`UPDATE ${table} SET status = 'active', reviewed_at = NOW(), reviewed_by = $1,
+    ? await db.query(`UPDATE ${table} SET status = 'active', reviewed_at = NOW(), reviewed_by_admin_user_id = $1,
         rejection_reason = NULL, published_at = COALESCE(published_at, NOW()), updated_at = NOW()
         WHERE id = $2 AND company_id = $3 AND status = 'pending' RETURNING id, company_id, name, status, reviewed_at`, [reviewer, productId, companyId])
-    : await db.query(`UPDATE ${table} SET status = 'rejected', reviewed_at = NOW(), reviewed_by = $1,
+    : await db.query(`UPDATE ${table} SET status = 'rejected', reviewed_at = NOW(), reviewed_by_admin_user_id = $1,
         rejection_reason = $2, updated_at = NOW()
         WHERE id = $3 AND company_id = $4 AND status = 'pending' RETURNING id, company_id, name, status, rejection_reason, reviewed_at`, [reviewer, reason.trim(), productId, companyId]);
   if (!rows.length) return errorResponse('Pending product not found or already reviewed.', 409);
@@ -256,7 +256,7 @@ products.patch('/:companyId/:productId/review', ...adminGuard, async (c) => {
   return jsonResponse(ok(rows[0], decision === 'approve' ? 'Product approved and published.' : 'Product rejected.'));
 });
 
-products.patch('/:companyId/:productId/keep', ...adminGuard, async (c) => {
+products.patch('/:companyId/:productId/keep', ...superAdminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
@@ -271,7 +271,7 @@ products.patch('/:companyId/:productId/keep', ...adminGuard, async (c) => {
   return jsonResponse(ok(product, 'Product marked to remain listed.'));
 });
 
-products.delete('/:companyId/:productId', ...adminGuard, async (c) => {
+products.delete('/:companyId/:productId', ...superAdminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);

@@ -4,18 +4,36 @@ import { Hono } from 'hono';
 import app from '../src/index.js';
 import { adminGuard } from '../src/middleware/adminAuth.js';
 
-test('public admin middleware accepts a request with no authorization header', async () => {
-  const publicApp = new Hono();
-  publicApp.get('/admin-data', ...adminGuard, (c) => c.json({ actorId: c.get('adminUser').id }));
+test('admin middleware rejects requests without a bearer token', async () => {
+  const protectedApp = new Hono();
+  protectedApp.get('/admin-data', ...adminGuard, (c) => c.json({ actorId: c.get('adminUser').id }));
 
-  const response = await publicApp.request('/admin-data');
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { actorId: null });
+  const response = await protectedApp.request('/admin-data');
+  assert.equal(response.status, 401);
+  assert.deepEqual((await response.json()).success, false);
 });
 
-test('login and current-user endpoints are not exposed', async () => {
+test('sensitive admin endpoints reject anonymous requests', async () => {
+  const paths = [
+    '/api/admin',
+    '/api/admin/dashboard',
+    '/api/admin/vendors',
+    '/api/admin/orders',
+    '/api/admin/products',
+    '/api/admin/settlements',
+    '/api/admin/audit-logs',
+    '/api/admin/employees',
+    '/api/admin/auth/me',
+  ];
+  for (const path of paths) {
+    const response = await app.request(path);
+    assert.equal(response.status, 401, `${path} must reject anonymous requests`);
+  }
+});
+
+test('health remains public and login route validates malformed requests', async () => {
+  const health = await app.request('/health');
   const login = await app.request('/api/admin/auth/login', { method: 'POST' });
-  const currentUser = await app.request('/api/admin/auth/me');
-  assert.equal(login.status, 404);
-  assert.equal(currentUser.status, 404);
+  assert.equal(health.status, 200);
+  assert.equal(login.status, 400);
 });

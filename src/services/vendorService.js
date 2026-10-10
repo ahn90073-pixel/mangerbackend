@@ -1,52 +1,44 @@
 import { tenantTable, listTenants } from '../lib/tenant.js';
 import { calculateCommission, initials, roundMoney } from '../lib/finance.js';
 
-async function loadCompanyRows(db, companyId = null) {
-  return companyId
-    ? await db`
-        SELECT c.id, c.slug, c.tenant_schema_name, c.legal_name, c.display_name, c.email, c.status, c.created_at,
-          owner.full_name AS merchant_name,
-          COALESCE(c.email, owner.email) AS contact_email,
-          owner.phone AS contact_phone,
-          COALESCE(settings.commission_type, 'percentage') AS commission_type,
-          COALESCE(settings.commission_value, 0)::numeric AS commission_value,
-          COALESCE(settled.net_amount, 0)::numeric AS settled_amount
-        FROM public.companies c
-        LEFT JOIN LATERAL (
-          SELECT u.full_name, u.email, u.phone
-          FROM public.company_members cm JOIN public.users u ON u.id = cm.user_id
-          WHERE cm.company_id = c.id AND cm.is_active = TRUE
-          ORDER BY (cm.role = 'owner') DESC, cm.created_at ASC LIMIT 1
-        ) owner ON TRUE
-        LEFT JOIN public.admin_company_settings settings ON settings.company_id = c.id
-        LEFT JOIN LATERAL (
-          SELECT SUM(s.net_amount) AS net_amount FROM public.admin_settlements s
-          WHERE s.company_id = c.id AND s.status = 'completed'
-        ) settled ON TRUE
-        WHERE c.id = ${companyId}
-      `
-    : await db`
-        SELECT c.id, c.slug, c.tenant_schema_name, c.legal_name, c.display_name, c.email, c.status, c.created_at,
-          owner.full_name AS merchant_name,
-          COALESCE(c.email, owner.email) AS contact_email,
-          owner.phone AS contact_phone,
-          COALESCE(settings.commission_type, 'percentage') AS commission_type,
-          COALESCE(settings.commission_value, 0)::numeric AS commission_value,
-          COALESCE(settled.net_amount, 0)::numeric AS settled_amount
-        FROM public.companies c
-        LEFT JOIN LATERAL (
-          SELECT u.full_name, u.email, u.phone
-          FROM public.company_members cm JOIN public.users u ON u.id = cm.user_id
-          WHERE cm.company_id = c.id AND cm.is_active = TRUE
-          ORDER BY (cm.role = 'owner') DESC, cm.created_at ASC LIMIT 1
-        ) owner ON TRUE
-        LEFT JOIN public.admin_company_settings settings ON settings.company_id = c.id
-        LEFT JOIN LATERAL (
-          SELECT SUM(s.net_amount) AS net_amount FROM public.admin_settlements s
-          WHERE s.company_id = c.id AND s.status = 'completed'
-        ) settled ON TRUE
-        ORDER BY c.created_at DESC
-      `;
+async function loadCompanyRows(db, companyId = null, governorates = null) {
+  const values = [];
+  const filters = [];
+  if (companyId) {
+    values.push(companyId);
+    filters.push(`c.id = $${values.length}::uuid`);
+  }
+  if (governorates !== null) {
+    if (!governorates.length) return [];
+    values.push(governorates);
+    filters.push(`c.governorate = ANY($${values.length}::text[])`);
+  }
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  return db.query(
+    `SELECT c.id, c.slug, c.tenant_schema_name, c.legal_name, c.display_name, c.email,
+      c.status, c.governorate, c.created_at,
+      owner.full_name AS merchant_name,
+      COALESCE(c.email, owner.email) AS contact_email,
+      owner.phone AS contact_phone,
+      COALESCE(settings.commission_type, 'percentage') AS commission_type,
+      COALESCE(settings.commission_value, 0)::numeric AS commission_value,
+      COALESCE(settled.net_amount, 0)::numeric AS settled_amount
+     FROM public.companies c
+     LEFT JOIN LATERAL (
+       SELECT u.full_name, u.email, u.phone
+       FROM public.company_members cm JOIN public.users u ON u.id = cm.user_id
+       WHERE cm.company_id = c.id AND cm.is_active = TRUE
+       ORDER BY (cm.role = 'owner') DESC, cm.created_at ASC LIMIT 1
+     ) owner ON TRUE
+     LEFT JOIN public.admin_company_settings settings ON settings.company_id = c.id
+     LEFT JOIN LATERAL (
+       SELECT SUM(s.net_amount) AS net_amount FROM public.admin_settlements s
+       WHERE s.company_id = c.id AND s.status = 'completed'
+     ) settled ON TRUE
+     ${where}
+     ORDER BY c.created_at DESC`,
+    values,
+  );
 }
 
 async function loadMetrics(db, rows) {
@@ -65,8 +57,8 @@ async function loadMetrics(db, rows) {
   return new Map(metrics.map((metric) => [metric.company_id, metric]));
 }
 
-export async function getVendorSummaries(db, companyId = null) {
-  const rows = await loadCompanyRows(db, companyId);
+export async function getVendorSummaries(db, companyId = null, governorates = null) {
+  const rows = await loadCompanyRows(db, companyId, governorates);
   if (!rows.length) return [];
   // Apply the idempotent tenant-product metadata hook for newly created companies.
   const tenantRows = await listTenants(db, companyId);
@@ -88,7 +80,8 @@ export async function getVendorSummaries(db, companyId = null) {
       merchantName: row.merchant_name || '—',
       email: row.contact_email || '',
       phone: row.contact_phone || '',
-      city: null,
+      city: row.governorate || null,
+      governorate: row.governorate || null,
       status: row.status || 'active',
       logo: initials(row.display_name),
       totalSales: roundMoney(totalSales),
@@ -104,4 +97,13 @@ export async function getVendorSummaries(db, companyId = null) {
       slug: row.slug,
     };
   });
+}
+
+export function redactVendorFinance(vendor) {
+  const {
+    totalSales, commissionType, commissionValue, commissionAmount, settledAmount, netBalance,
+    totalProducts, pendingProducts,
+    ...publicDetails
+  } = vendor;
+  return publicDetails;
 }

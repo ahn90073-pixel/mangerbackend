@@ -2,23 +2,38 @@ import { listTenants, tenantTable } from '../lib/tenant.js';
 import { paginated } from '../lib/validation.js';
 
 export async function listAdminOrders(db, options = {}) {
-  const { page = 1, limit = 20, offset = (page - 1) * limit, q = '', status = '', companyId = null } = options;
+  const {
+    page = 1,
+    limit = 20,
+    offset = (page - 1) * limit,
+    q = '',
+    status = '',
+    companyId = null,
+    governorates = null,
+  } = options;
+  if (governorates !== null && !governorates.length) return paginated([], 0, page, limit);
   const tenants = await listTenants(db, companyId);
   if (!tenants.length) return paginated([], 0, page, limit);
 
   const values = tenants.map((tenant) => tenant.id);
+  let governorateFilter = '';
+  if (governorates !== null) {
+    values.push(governorates);
+    governorateFilter = ` AND c.governorate = ANY($${values.length}::text[])`;
+  }
   const branches = tenants.map((tenant, index) => {
     const p = `$${index + 1}`;
     const orders = tenantTable(tenant.tenant_schema_name, 'orders');
     const customers = tenantTable(tenant.tenant_schema_name, 'customers');
     return `SELECT o.id, o.order_number, o.company_id, c.display_name AS vendor_name,
+      c.governorate AS vendor_governorate,
       COALESCE(cu.full_name, cu.email, cu.phone, 'زائر') AS customer_name,
       o.grand_total::numeric AS amount, o.currency::text AS currency, o.status,
       o.payment_status, COALESCE(o.placed_at, o.created_at) AS ordered_at
       FROM ${orders} o
       JOIN public.companies c ON c.id = o.company_id
       LEFT JOIN ${customers} cu ON cu.id = o.customer_id
-      WHERE o.company_id = ${p}::uuid`;
+      WHERE o.company_id = ${p}::uuid${governorateFilter}`;
   });
 
   const filters = [];
@@ -49,6 +64,7 @@ export async function listAdminOrders(db, options = {}) {
     orderId: row.id,
     vendorId: row.company_id,
     vendorName: row.vendor_name,
+    vendorGovernorate: row.vendor_governorate,
     customer: row.customer_name,
     amount: Number(row.amount || 0),
     currency: row.currency?.trim() || 'EGP',
