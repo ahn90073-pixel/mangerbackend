@@ -1,4 +1,11 @@
 # Copy to .dev.vars locally and fill in values; never commit .dev.vars.
-DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
+# Use Neon pooled URL for the Cloudflare Worker runtime.
+DATABASE_URL=postgresql://USER:PASSWORD@HOST-pooler/DB?sslmode=require
+# Use Neon direct/unpooled URL when applying migrations with psql.
+DATABASE_MIGRATION_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 # Generate a unique random secret, e.g. openssl rand -base64 48
 ADMIN_JWT_SECRET=REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS
+
+# Firebase Web API key for server-side ID-token verification via Identity Toolkit.
+FIREBASE_WEB_API_KEY=AIzaSyDnHE-oYAdjNUckPUX2CSPtA4ZUiDCDLw
+# No admin email allow-list: the first three verified Google sign-ins claim the Neon admin seats.

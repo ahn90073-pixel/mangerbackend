@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       apply_admin_migration:
-        description: Apply Mange admin, authentication, employee and governorate migrations to the production database before deploying
+        description: Apply Mange admin, employee, governorate and Firebase Google authentication migrations before deploying
         required: true
         type: boolean
         default: false
@@ -46,25 +46,37 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          for name in DATABASE_URL ADMIN_JWT_SECRET CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+          for name in DATABASE_URL ADMIN_JWT_SECRET FIREBASE_WEB_API_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Missing GitHub Actions secret: $name"
               exit 1
             fi
           done
 
+      - name: Check direct Neon migration URL
+        if: ${{ inputs.apply_admin_migration }}
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+        run: |
+          if [[ -z "${DATABASE_MIGRATION_URL:-}" ]]; then
+            echo "::error::Missing GitHub Actions secret: DATABASE_MIGRATION_URL"
+            exit 1
+          fi
+
       - name: Apply Mange admin database migration
         if: ${{ inputs.apply_admin_migration }}
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
         run: |
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin_auth.sql
 
       - name: Deploy Worker and set runtime secrets
         uses: cloudflare/wrangler-action@v4
@@ -76,13 +88,13 @@ jobs:
           secrets: |
             DATABASE_URL
             ADMIN_JWT_SECRET
+            FIREBASE_WEB_API_KEY
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
 
-      - name: Integration test — authenticate against deployed Worker
+      - name: Integration test — verify Firebase Google auth route
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
-          INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
-        run: node scripts/check-super-admin-login-ci.js
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+        run: node scripts/check-firebase-google-auth-ci.js

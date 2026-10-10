@@ -17,7 +17,8 @@ export async function authenticateAdmin(c, next) {
 
   const db = createDb(c.env);
   const [row] = await db.query(
-    `SELECT id, email, full_name, role, assigned_governorates, is_active, token_version
+    `SELECT id, email, full_name, role, assigned_governorates, is_active, token_version,
+            auth_provider
      FROM public.admin_users WHERE id = $1::uuid LIMIT 1`,
     [claims.sub],
   );
@@ -25,6 +26,16 @@ export async function authenticateAdmin(c, next) {
     return errorResponse('الحساب غير نشط أو انتهت صلاحيته. سجّل الدخول مجددًا.', 401);
   }
   if (!['super_admin', 'employee'].includes(row.role)) return errorResponse('الدور غير مخوّل للوصول إلى لوحة الإدارة.', 403);
+
+  if (row.role === 'super_admin') {
+    const [seat] = await db.query(
+      'SELECT 1 FROM public.admin_google_admin_slots WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      [row.email],
+    );
+    if (row.auth_provider !== 'firebase' || !seat) {
+      return errorResponse('يجب على الأدمن تسجيل الدخول بحساب Google ضمن أول ثلاثة حسابات مسجلة.', 403);
+    }
+  }
 
   const user = {
     id: row.id,
