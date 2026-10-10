@@ -23,6 +23,7 @@ jobs:
 
       - name: Test login without logging credentials or token
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
           INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
         run: node scripts/check-super-admin-login-ci.js
