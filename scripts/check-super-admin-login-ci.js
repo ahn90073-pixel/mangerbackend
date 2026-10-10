@@ -39,7 +39,11 @@ try {
   const payload = await response.json().catch(() => null);
   const data = payload?.data ?? payload;
   if (!response.ok || payload?.success === false || !data?.token || !data?.user?.role) {
-    console.error(`Database credentials match, but the deployed admin API rejected login with HTTP ${response.status}. Check the Worker database configuration. Response details and credentials were not printed.`);
+    if (response.status === 401) {
+      console.error('The CI database check passed, but Worker returned 401. In auth.js this means Worker found no active admin with an allowed role, or its password-hash verification failed. The API intentionally does not reveal which case to unauthenticated callers. Compare the Worker runtime database binding and the exact email/hash row. No secrets or response body were printed.');
+    } else {
+      console.error(`The CI database check passed, but Worker returned HTTP ${response.status}. Inspect Worker runtime configuration and logs. No secrets or response body were printed.`);
+    }
     process.exit(1);
   }
   console.log(`Login check passed. Authenticated role: ${data.user.role}. Token was discarded and not logged.`);
