@@ -1,4 +1,5 @@
 import { createDb } from '../lib/db.js';
+import { parseAdminGoogleEmails } from '../lib/firebaseAuth.js';
 import { verifyAdminToken } from '../lib/adminToken.js';
 import { errorResponse } from '../lib/response.js';
 
@@ -17,7 +18,8 @@ export async function authenticateAdmin(c, next) {
 
   const db = createDb(c.env);
   const [row] = await db.query(
-    `SELECT id, email, full_name, role, assigned_governorates, is_active, token_version
+    `SELECT id, email, full_name, role, assigned_governorates, is_active, token_version,
+            auth_provider
      FROM public.admin_users WHERE id = $1::uuid LIMIT 1`,
     [claims.sub],
   );
@@ -25,6 +27,14 @@ export async function authenticateAdmin(c, next) {
     return errorResponse('الحساب غير نشط أو انتهت صلاحيته. سجّل الدخول مجددًا.', 401);
   }
   if (!['super_admin', 'employee'].includes(row.role)) return errorResponse('الدور غير مخوّل للوصول إلى لوحة الإدارة.', 403);
+
+  if (row.role === 'super_admin') {
+    const allowedEmails = parseAdminGoogleEmails(c.env.ADMIN_GOOGLE_EMAILS);
+    if (!allowedEmails) return errorResponse('قائمة حسابات Google للأدمن غير مهيأة على الخادم.', 503);
+    if (row.auth_provider !== 'firebase' || !allowedEmails.includes(String(row.email).toLowerCase())) {
+      return errorResponse('يجب على الأدمن تسجيل الدخول بحساب Google معتمد.', 403);
+    }
+  }
 
   const user = {
     id: row.id,
