@@ -17,6 +17,16 @@ function publicUser(user) {
   };
 }
 
+function logLoginRejection(c, reason, details = {}) {
+  // Never log email, password, password_hash, database URL, or session token.
+  console.warn(JSON.stringify({
+    event: 'admin_login_rejected',
+    requestId: c.req.header('cf-ray') || c.req.header('x-request-id') || 'unavailable',
+    reason,
+    ...details,
+  }));
+}
+
 auth.post('/login', async (c) => {
   const body = await c.req.json().catch(() => null);
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -31,10 +41,26 @@ auth.post('/login', async (c) => {
      FROM public.admin_users WHERE LOWER(email) = $1 LIMIT 1`,
     [email],
   );
-  if (!user || !user.is_active || !['super_admin', 'employee'].includes(user.role)) {
+  if (!user) {
+    logLoginRejection(c, 'account_not_found_or_email_mismatch');
+    return errorResponse('البريد الإلكتروني أو كلمة المرور غير صحيحة.', 401);
+  }
+  if (!user.is_active) {
+    logLoginRejection(c, 'account_inactive', { role: user.role });
+    return errorResponse('البريد الإلكتروني أو كلمة المرور غير صحيحة.', 401);
+  }
+  if (!['super_admin', 'employee'].includes(user.role)) {
+    logLoginRejection(c, 'role_not_allowed', { role: user.role });
     return errorResponse('البريد الإلكتروني أو كلمة المرور غير صحيحة.', 401);
   }
   if (!(await verifyPassword(password, user.password_hash))) {
+    const hashParts = typeof user.password_hash === 'string' ? user.password_hash.split('$') : [];
+    const parsedIterations = Number(hashParts[1]);
+    logLoginRejection(c, 'password_hash_mismatch', {
+      role: user.role,
+      hashAlgorithm: hashParts[0] || 'missing_or_malformed',
+      hashIterations: Number.isInteger(parsedIterations) ? parsedIterations : null,
+    });
     return errorResponse('البريد الإلكتروني أو كلمة المرور غير صحيحة.', 401);
   }
 

@@ -39,10 +39,11 @@ try {
   const payload = await response.json().catch(() => null);
   const data = payload?.data ?? payload;
   if (!response.ok || payload?.success === false || !data?.token || !data?.user?.role) {
+    const requestId = response.headers.get('cf-ray') || 'unavailable';
     if (response.status === 401) {
-      console.error('The CI database check passed, but Worker returned 401. In auth.js this means Worker found no active admin with an allowed role, or its password-hash verification failed. The API intentionally does not reveal which case to unauthenticated callers. Compare the Worker runtime database binding and the exact email/hash row. No secrets or response body were printed.');
+      console.error(`The CI database check passed, but Worker returned 401 (Cloudflare request ID: ${requestId}). Check Worker logs for this request ID; auth.js records a safe rejection reason. The API intentionally does not expose that reason in its response. No secrets or response body were printed.`);
     } else {
-      console.error(`The CI database check passed, but Worker returned HTTP ${response.status}. Inspect Worker runtime configuration and logs. No secrets or response body were printed.`);
+      console.error(`The CI database check passed, but Worker returned HTTP ${response.status} (Cloudflare request ID: ${requestId}). Inspect Worker runtime configuration and logs. No secrets or response body were printed.`);
     }
     process.exit(1);
   }
