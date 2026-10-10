@@ -7,6 +7,6 @@ DATABASE_MIGRATION_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 ADMIN_JWT_SECRET=REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS
 
 # Firebase Web API key for server-side ID-token verification via Identity Toolkit.
-FIREBASE_WEB_API_KEY=REPLACE_WITH_FIREBASE_WEB_API_KEY
+FIREBASE_WEB_API_KEY=AIzaSyDnHE-oYAdjNUckPUX2CSPtA4ZUiDCDLw
 # Comma-separated, approved Gmail addresses only; at most three distinct addresses.
 ADMIN_GOOGLE_EMAILS=admin1@gmail.com,admin2@gmail.com,admin3@gmail.com
