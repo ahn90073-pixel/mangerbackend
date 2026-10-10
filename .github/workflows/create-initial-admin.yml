@@ -1,0 +1,55 @@
+name: Create initial Mange admin
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: create-initial-mange-admin
+  cancel-in-progress: false
+
+jobs:
+  create-initial-admin:
+    name: Create the first super admin (one time only)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create initial admin
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INITIAL_ADMIN_NAME: ${{ secrets.INITIAL_ADMIN_NAME }}
+          INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
+          INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
+        run: |
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "::error::Missing GitHub Actions secret: DATABASE_URL"
+            exit 1
+          fi
+          if [[ -z "${INITIAL_ADMIN_NAME:-}" ]]; then
+            echo "::error::Missing GitHub Actions secret: INITIAL_ADMIN_NAME"
+            exit 1
+          fi
+          if [[ -z "${INITIAL_ADMIN_EMAIL:-}" ]]; then
+            echo "::error::Missing GitHub Actions secret: INITIAL_ADMIN_EMAIL"
+            exit 1
+          fi
+          if [[ -z "${INITIAL_ADMIN_PASSWORD:-}" ]]; then
+            echo "::error::Missing GitHub Actions secret: INITIAL_ADMIN_PASSWORD"
+            exit 1
+          fi
+          node scripts/create-super-admin-ci.js
