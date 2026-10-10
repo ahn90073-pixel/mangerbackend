@@ -47,11 +47,10 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
-          ADMIN_GOOGLE_EMAILS: ${{ secrets.ADMIN_GOOGLE_EMAILS }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          for name in DATABASE_URL ADMIN_JWT_SECRET FIREBASE_WEB_API_KEY ADMIN_GOOGLE_EMAILS CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+          for name in DATABASE_URL ADMIN_JWT_SECRET FIREBASE_WEB_API_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Missing GitHub Actions secret: $name"
               exit 1
@@ -90,15 +89,12 @@ jobs:
             DATABASE_URL
             ADMIN_JWT_SECRET
             FIREBASE_WEB_API_KEY
-            ADMIN_GOOGLE_EMAILS
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
-          ADMIN_GOOGLE_EMAILS: ${{ secrets.ADMIN_GOOGLE_EMAILS }}
 
       - name: Integration test — verify Firebase Google auth route
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
-          ADMIN_GOOGLE_EMAILS: ${{ secrets.ADMIN_GOOGLE_EMAILS }}
         run: node scripts/check-firebase-google-auth-ci.js

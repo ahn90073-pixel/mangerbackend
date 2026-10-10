@@ -26,12 +26,12 @@ psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_go
 
 1. فعّل **Google** في Firebase Console ضمن Authentication > Sign-in method، وأضف نطاق الواجهة المنشورة إلى Authorized domains.
 2. أضف إعدادات Firebase Web App في بيئة بناء الواجهة (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`). هذه إعدادات عميل عامة؛ قيّد Firebase API key بنطاقات التطبيق في Google Cloud.
-3. أضف إلى أسرار Cloudflare Worker `FIREBASE_WEB_API_KEY` و`ADMIN_GOOGLE_EMAILS`، إضافة إلى `DATABASE_URL` و`ADMIN_JWT_SECRET` الموجودين مسبقًا. احفظ `DATABASE_MIGRATION_URL` المنفصل في GitHub Actions لاستخدامه عند تشغيل `psql`. قيمة `ADMIN_GOOGLE_EMAILS` قائمة مفصولة بفواصل من عناوين `@gmail.com` المعتمدة، وبحد أقصى **ثلاثة عناوين مختلفة**.
-4. أدرج عناوين الأدمن المسموح بها قبل النشر. الترحيل يحافظ على أول ثلاثة حسابات `super_admin` موجودة بحجز مقاعد لها. عند إزالة عنوان من القائمة، تُمنع جلساته ويُعاد استخدام المقعد لحساب معتمد آخر؛ سجل المستخدم القديم في Neon لا يُحذف.
+3. أضف إلى أسرار Cloudflare Worker `FIREBASE_WEB_API_KEY`، إضافة إلى `DATABASE_URL` و`ADMIN_JWT_SECRET` الموجودين مسبقًا. احفظ `DATABASE_MIGRATION_URL` المنفصل في GitHub Actions لاستخدامه عند تشغيل `psql`. لا توجد قائمة بريد يجب إعدادها.
+4. ينشئ الترحيل ثلاثة مقاعد فارغة في Neon. أول ثلاثة حسابات بهوية Google موثقة تسجل من زر Google تحجزها تلقائيًا؛ بعد امتلائها يُرفض تسجيل أي أدمن جديد ولا يعاد تدوير المقعد عند تعطيل حساب. الحسابات الإدارية القديمة لا تحجز مقاعد مسبقًا، ولا تحتفظ بصلاحية الأدمن إلا إذا سجّلت ضمن أول ثلاثة. سجل المستخدم القديم لا يُحذف.
 
 تتحقق الخدمة من Firebase ID token عبر Firebase Identity Toolkit، ولا تثق بعنوان بريد أو دور يرسله المتصفح. يقتصر مسار كلمة المرور على الموظفين، وتظل صلاحيات الموظفين ومحافظاتهم كما كانت. لا يمكن تحويل بريد موظف إلى أدمن تلقائيًا؛ يجب أن يكون Gmail معتمدًا وحسابه بدور `super_admin`.
 
-لا حاجة لإنشاء حساب أدمن بكلمة مرور يدويًا. بعد تطبيق الترحيل وإعداد `ADMIN_GOOGLE_EMAILS` وFirebase، يُنشأ سجل أول أدمن تلقائيًا في Neon عند أول دخول ناجح بأحد عناوين Gmail المعتمدة. الأدمن العام الحالي يُربط بعنوان Firebase عند أول دخول Google إذا كان عنوانه ضمن القائمة. إنشاء الموظفين يظل من صفحة «إدارة الموظفين» بكلمة مرور ومحافظة أو أكثر.
+لا حاجة لإنشاء حساب أدمن يدويًا أو إدراج بريده مسبقًا. بعد تطبيق الترحيل وإعداد Firebase، أول ثلاثة هويات Google موثقة تسجل بنجاح تُنشئ حسابات `super_admin` في Neon، وبعدها يُغلق قبول أدمن جديد. الحساب الموجود مسبقًا الذي يطابق أحد أول ثلاثة تسجيلات يُربط بهوية Firebase نفسها؛ حسابات الموظفين تظل بدخولها وصلاحياتها كما هي ولا تتحول تلقائيًا إلى أدمن.
 
 ## إعداد الأسرار
 
@@ -41,7 +41,7 @@ psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_go
 openssl rand -base64 48
 ```
 
-أضف القيمة باسم `ADMIN_JWT_SECRET`، واحتفظ أيضًا بـ`DATABASE_URL`, `FIREBASE_WEB_API_KEY`, و`ADMIN_GOOGLE_EMAILS` في أسرار/متغيرات Cloudflare Worker. استخدم عنوان اتصال Neon المجمّع (pooled) لـ`DATABASE_URL` الخاص بـWorker، والعنوان المباشر (direct، بلا `-pooler`) لـ`DATABASE_MIGRATION_URL` في GitHub Actions، لأن خطوة الترحيل تستخدم `psql`. لا تُسجل أي أسرار في Git. مدة رمز الدخول 8 ساعات، ويتحقق الخادم من حالة الحساب والدور والمحافظات من Neon في كل طلب. إيقاف الموظف يرفع `token_version` فيبطل جلساته القائمة، وتغيير قائمة أدمن Google يقيّد جلسات الأدمن فورًا.
+أضف القيمة باسم `ADMIN_JWT_SECRET`، واحتفظ أيضًا بـ`DATABASE_URL` و`FIREBASE_WEB_API_KEY` في أسرار/متغيرات Cloudflare Worker. استخدم عنوان اتصال Neon المجمّع (pooled) لـ`DATABASE_URL` الخاص بـWorker، والعنوان المباشر (direct، بلا `-pooler`) لـ`DATABASE_MIGRATION_URL` في GitHub Actions، لأن خطوة الترحيل تستخدم `psql`. لا تُسجل أي أسرار في Git. مدة رمز الدخول 8 ساعات، ويتحقق الخادم من حالة الحساب والدور والمحافظات ومقعد Google في Neon في كل طلب. إيقاف الموظف يرفع `token_version` فيبطل جلساته القائمة.
 
 محليًا، املأ `.dev.vars` ثم شغّل:
 
@@ -58,7 +58,7 @@ npm run dev
 | المسار | الصلاحية | الوظيفة |
 |---|---|---|
 | `POST /auth/login` | عام | دخول الموظفين بكلمة المرور؛ حسابات الأدمن تستخدم Google |
-| `POST /auth/google` | عام | يتحقق من Firebase/Google، ويسجل حساب الأدمن المعتمد (حتى 3) في Neon ويصدر رمزًا محدودًا بثماني ساعات |
+| `POST /auth/google` | عام | يتحقق من Firebase/Google، ويمنح أول ثلاثة حسابات مقعد أدمن في Neon ثم يغلق التسجيل، ويصدر رمزًا محدودًا بثماني ساعات |
 | `GET /auth/me` | أي مستخدم مسجل | ملف الحساب والدور والمحافظات |
 | `POST /auth/logout` | أي مستخدم مسجل | إنهاء جلسة الواجهة؛ يحذف العميل الرمز. ينتهي الرمز أيضًا بعد 8 ساعات |
 | `GET /dashboard` | أدمن أو موظف | المؤشرات والطلبات ضمن نطاق المستخدم |

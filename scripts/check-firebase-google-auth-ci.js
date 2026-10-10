@@ -1,11 +1,8 @@
-import { parseAdminGoogleEmails } from '../src/lib/firebaseAuth.js';
-
 const firebaseApiKey = process.env.FIREBASE_WEB_API_KEY;
-const allowedEmails = parseAdminGoogleEmails(process.env.ADMIN_GOOGLE_EMAILS);
 const baseUrl = 'https://mangerbackend.ahn90073.workers.dev';
 
-if (!firebaseApiKey || !allowedEmails) {
-  console.error('Missing Firebase API key or a valid ADMIN_GOOGLE_EMAILS list (up to three Gmail addresses).');
+if (!firebaseApiKey) {
+  console.error('Missing Firebase API key.');
   process.exit(1);
 }
 

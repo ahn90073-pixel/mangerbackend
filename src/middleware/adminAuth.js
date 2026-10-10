@@ -1,5 +1,4 @@
 import { createDb } from '../lib/db.js';
-import { parseAdminGoogleEmails } from '../lib/firebaseAuth.js';
 import { verifyAdminToken } from '../lib/adminToken.js';
 import { errorResponse } from '../lib/response.js';
 
@@ -29,10 +28,12 @@ export async function authenticateAdmin(c, next) {
   if (!['super_admin', 'employee'].includes(row.role)) return errorResponse('الدور غير مخوّل للوصول إلى لوحة الإدارة.', 403);
 
   if (row.role === 'super_admin') {
-    const allowedEmails = parseAdminGoogleEmails(c.env.ADMIN_GOOGLE_EMAILS);
-    if (!allowedEmails) return errorResponse('قائمة حسابات Google للأدمن غير مهيأة على الخادم.', 503);
-    if (row.auth_provider !== 'firebase' || !allowedEmails.includes(String(row.email).toLowerCase())) {
-      return errorResponse('يجب على الأدمن تسجيل الدخول بحساب Google معتمد.', 403);
+    const [seat] = await db.query(
+      'SELECT 1 FROM public.admin_google_admin_slots WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      [row.email],
+    );
+    if (row.auth_provider !== 'firebase' || !seat) {
+      return errorResponse('يجب على الأدمن تسجيل الدخول بحساب Google ضمن أول ثلاثة حسابات مسجلة.', 403);
     }
   }
 

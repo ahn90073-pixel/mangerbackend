@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createDb } from '../lib/db.js';
 import { createAdminToken } from '../lib/adminToken.js';
 import { verifyPassword } from '../lib/password.js';
-import { lookupFirebaseGoogleUser, parseAdminGoogleEmails } from '../lib/firebaseAuth.js';
+import { lookupFirebaseGoogleUser } from '../lib/firebaseAuth.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
 import { adminGuard } from '../middleware/adminAuth.js';
 
@@ -38,14 +38,8 @@ async function getAdminByEmail(db, email) {
   return user || null;
 }
 
-async function reserveGoogleAdminSlot(db, email, allowedEmails) {
-  // Reclaim seats removed from the current allow-list. Middleware also revokes their existing sessions.
-  await db.query(
-    `UPDATE public.admin_google_admin_slots
-     SET email = NULL, reserved_at = NULL
-     WHERE email IS NOT NULL AND NOT (email = ANY($1::text[]))`,
-    [allowedEmails],
-  );
+export async function reserveGoogleAdminSlot(db, email) {
+  // Seats are permanent: the first three verified Google identities claim them; later signups stay closed.
   const [existing] = await db.query(
     'SELECT slot FROM public.admin_google_admin_slots WHERE email = $1 LIMIT 1',
     [email],
@@ -75,7 +69,7 @@ async function reserveGoogleAdminSlot(db, email, allowedEmails) {
   return Boolean(concurrentReservation);
 }
 
-async function createGoogleAdminIfMissing(db, email, fullName, firebaseUid, allowedEmails) {
+async function createGoogleAdminIfMissing(db, email, fullName, firebaseUid) {
   let user = await getAdminByEmail(db, email);
   if (user && user.role !== 'super_admin') return { error: 'هذا البريد مرتبط بحساب موظف. استخدم بيانات دخول الموظف.' };
   if (user && !user.is_active) return { error: 'حساب الأدمن غير نشط. تواصل مع مسؤول النظام.' };
@@ -85,7 +79,7 @@ async function createGoogleAdminIfMissing(db, email, fullName, firebaseUid, allo
     [firebaseUid, email],
   );
   if (uidOwner) return { error: 'هوية Firebase مرتبطة بحساب إدارة آخر.' };
-  if (!(await reserveGoogleAdminSlot(db, email, allowedEmails))) return { limitReached: true };
+  if (!(await reserveGoogleAdminSlot(db, email))) return { limitReached: true };
 
   if (!user) {
     try {
@@ -170,8 +164,7 @@ auth.post('/google', async (c) => {
     return errorResponse('بيانات تسجيل Google غير صالحة.', 400);
   }
 
-  const allowedEmails = parseAdminGoogleEmails(c.env.ADMIN_GOOGLE_EMAILS);
-  if (!allowedEmails || !c.env.FIREBASE_WEB_API_KEY) {
+  if (!c.env.FIREBASE_WEB_API_KEY) {
     return errorResponse('مصادقة Google للأدمن غير مهيأة على الخادم.', 503);
   }
 
@@ -182,16 +175,11 @@ auth.post('/google', async (c) => {
     return errorResponse('تعذر التحقق من حساب Google الآن. حاول مرة أخرى.', 503);
   }
   if (!identity) return errorResponse('تعذر التحقق من حساب Google أو أن البريد غير مؤكّد.', 401);
-  if (!allowedEmails.includes(identity.email)) {
-    logLoginRejection(c, 'google_email_not_allowlisted');
-    return errorResponse('هذا البريد غير معتمد كحساب أدمن. تواصل مع مسؤول النظام.', 403);
-  }
-
   const db = createDb(c.env);
-  const result = await createGoogleAdminIfMissing(db, identity.email, identity.fullName, identity.uid, allowedEmails);
+  const result = await createGoogleAdminIfMissing(db, identity.email, identity.fullName, identity.uid);
   if (result.error) return errorResponse(result.error, 403);
   if (result.limitReached) {
-    return errorResponse('اكتمل الحد الأقصى البالغ ثلاثة حسابات أدمن. أزل عنوانًا معتمدًا قبل إضافة حساب جديد.', 403);
+    return errorResponse('اكتمل العدد المسموح به وهو ثلاثة حسابات أدمن؛ تم إغلاق التسجيل الإداري.', 403);
   }
 
   let token;

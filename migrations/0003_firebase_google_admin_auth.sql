@@ -33,17 +33,6 @@ CREATE TABLE IF NOT EXISTS public.admin_google_admin_slots (
 INSERT INTO public.admin_google_admin_slots (slot) VALUES (1), (2), (3)
   ON CONFLICT (slot) DO NOTHING;
 
--- Preserve up to three existing super-admin accounts as occupied slots; never remove accounts.
-WITH legacy_admins AS (
-  SELECT LOWER(email) AS email, ROW_NUMBER() OVER (ORDER BY created_at, id)::SMALLINT AS slot
-  FROM public.admin_users
-  WHERE role = 'super_admin'
-  ORDER BY created_at, id
-  LIMIT 3
-)
-UPDATE public.admin_google_admin_slots AS slots
-SET email = legacy_admins.email, reserved_at = NOW()
-FROM legacy_admins
-WHERE slots.slot = legacy_admins.slot AND slots.email IS NULL;
+-- Leave all three seats empty: only the first three verified Google sign-ins may claim admin access.
 
 COMMIT;
