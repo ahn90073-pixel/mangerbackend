@@ -2,3 +2,8 @@
 DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 # Generate a unique random secret, e.g. openssl rand -base64 48
 ADMIN_JWT_SECRET=REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS
+# Firebase Web API key and project ID from Firebase Project Settings.
+FIREBASE_WEB_API_KEY=REPLACE_WITH_FIREBASE_WEB_API_KEY
+FIREBASE_PROJECT_ID=REPLACE_WITH_FIREBASE_PROJECT_ID
+# Comma-separated verified Firebase admin emails; maximum three.
+FIREBASE_ADMIN_EMAILS=admin@example.com
