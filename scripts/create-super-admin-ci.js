@@ -39,7 +39,13 @@ try {
   `;
   if (!user) throw new Error('Insert did not return a created account.');
   console.log('Initial super admin created successfully.');
-} catch {
-  console.error('Admin creation failed. Confirm DATABASE_URL is correct and migration 0002 has been applied. No credentials were printed.');
+} catch (error) {
+  const safeCode = typeof error?.code === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(error.code)
+    ? `; database error code ${error.code}`
+    : '';
+  const safeType = typeof error?.name === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(error.name)
+    ? error.name
+    : 'unknown error';
+  console.error(`Admin creation failed (${safeType}${safeCode}). Check DATABASE_URL connectivity and confirm migration 0002 has been applied. No credentials were printed.`);
   process.exit(1);
 }
