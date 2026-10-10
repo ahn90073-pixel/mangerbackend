@@ -58,16 +58,26 @@ jobs:
             fi
           done
 
+      - name: Check direct Neon migration URL
+        if: ${{ inputs.apply_admin_migration }}
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+        run: |
+          if [[ -z "${DATABASE_MIGRATION_URL:-}" ]]; then
+            echo "::error::Missing GitHub Actions secret: DATABASE_MIGRATION_URL"
+            exit 1
+          fi
+
       - name: Apply Mange admin database migration
         if: ${{ inputs.apply_admin_migration }}
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
         run: |
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin_auth.sql
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin_auth.sql
 
       - name: Deploy Worker and set runtime secrets
         uses: cloudflare/wrangler-action@v4

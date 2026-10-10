@@ -15,9 +15,9 @@
 يجب تطبيق ترحيلات Tager `0001` إلى `0004` على Neon أولًا، ثم ترحيلات لوحة الإدارة بهذا الترتيب:
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin_auth.sql
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin_auth.sql
 ```
 
 الترحيلات إضافية وقابلة لإعادة التشغيل؛ تنشئ `public.admin_users`، وتضيف حقول صلاحيات الإدارة ومصادقة Firebase، وتحجز ثلاثة مقاعد للأدمن، وتحدث جداول مراجعة المنتجات. لا تحذف مستخدمين أو طلبات أو بيانات أعمال.
@@ -26,7 +26,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin
 
 1. فعّل **Google** في Firebase Console ضمن Authentication > Sign-in method، وأضف نطاق الواجهة المنشورة إلى Authorized domains.
 2. أضف إعدادات Firebase Web App في بيئة بناء الواجهة (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`). هذه إعدادات عميل عامة؛ قيّد Firebase API key بنطاقات التطبيق في Google Cloud.
-3. أضف إلى أسرار/متغيرات Cloudflare Worker `FIREBASE_WEB_API_KEY` و`ADMIN_GOOGLE_EMAILS`، إضافة إلى `DATABASE_URL` و`ADMIN_JWT_SECRET` الموجودين مسبقًا. قيمة `ADMIN_GOOGLE_EMAILS` قائمة مفصولة بفواصل من عناوين `@gmail.com` المعتمدة، وبحد أقصى **ثلاثة عناوين مختلفة**.
+3. أضف إلى أسرار Cloudflare Worker `FIREBASE_WEB_API_KEY` و`ADMIN_GOOGLE_EMAILS`، إضافة إلى `DATABASE_URL` و`ADMIN_JWT_SECRET` الموجودين مسبقًا. احفظ `DATABASE_MIGRATION_URL` المنفصل في GitHub Actions لاستخدامه عند تشغيل `psql`. قيمة `ADMIN_GOOGLE_EMAILS` قائمة مفصولة بفواصل من عناوين `@gmail.com` المعتمدة، وبحد أقصى **ثلاثة عناوين مختلفة**.
 4. أدرج عناوين الأدمن المسموح بها قبل النشر. الترحيل يحافظ على أول ثلاثة حسابات `super_admin` موجودة بحجز مقاعد لها. عند إزالة عنوان من القائمة، تُمنع جلساته ويُعاد استخدام المقعد لحساب معتمد آخر؛ سجل المستخدم القديم في Neon لا يُحذف.
 
 تتحقق الخدمة من Firebase ID token عبر Firebase Identity Toolkit، ولا تثق بعنوان بريد أو دور يرسله المتصفح. يقتصر مسار كلمة المرور على الموظفين، وتظل صلاحيات الموظفين ومحافظاتهم كما كانت. لا يمكن تحويل بريد موظف إلى أدمن تلقائيًا؛ يجب أن يكون Gmail معتمدًا وحسابه بدور `super_admin`.
@@ -41,7 +41,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin
 openssl rand -base64 48
 ```
 
-أضف القيمة باسم `ADMIN_JWT_SECRET`، واحتفظ أيضًا بـ`DATABASE_URL`, `FIREBASE_WEB_API_KEY`, و`ADMIN_GOOGLE_EMAILS` في أسرار/متغيرات Cloudflare Worker. عند استخدام Workflow النشر اليدوي، أضف أسرار النشر المطلوبة إلى GitHub Actions secrets. لا تُسجل أي أسرار في Git. مدة رمز الدخول 8 ساعات، ويتحقق الخادم من حالة الحساب والدور والمحافظات من Neon في كل طلب. إيقاف الموظف يرفع `token_version` فيبطل جلساته القائمة، وتغيير قائمة أدمن Google يقيّد جلسات الأدمن فورًا.
+أضف القيمة باسم `ADMIN_JWT_SECRET`، واحتفظ أيضًا بـ`DATABASE_URL`, `FIREBASE_WEB_API_KEY`, و`ADMIN_GOOGLE_EMAILS` في أسرار/متغيرات Cloudflare Worker. استخدم عنوان اتصال Neon المجمّع (pooled) لـ`DATABASE_URL` الخاص بـWorker، والعنوان المباشر (direct، بلا `-pooler`) لـ`DATABASE_MIGRATION_URL` في GitHub Actions، لأن خطوة الترحيل تستخدم `psql`. لا تُسجل أي أسرار في Git. مدة رمز الدخول 8 ساعات، ويتحقق الخادم من حالة الحساب والدور والمحافظات من Neon في كل طلب. إيقاف الموظف يرفع `token_version` فيبطل جلساته القائمة، وتغيير قائمة أدمن Google يقيّد جلسات الأدمن فورًا.
 
 محليًا، املأ `.dev.vars` ثم شغّل:
 
