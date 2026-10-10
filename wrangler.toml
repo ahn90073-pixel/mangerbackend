@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 DEFAULT_CURRENCY = "EGP"
 
 [secrets]
-required = ["DATABASE_URL", "ADMIN_JWT_SECRET"]
+required = ["DATABASE_URL", "ADMIN_JWT_SECRET", "FIREBASE_WEB_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_ADMIN_EMAILS"]
 
 # Branch previews receive no production database credentials or signing secret.
 [previews.vars]

@@ -34,6 +34,8 @@ test('sensitive admin endpoints reject anonymous requests', async () => {
 test('health remains public and login route validates malformed requests', async () => {
   const health = await app.request('/health');
   const login = await app.request('/api/admin/auth/login', { method: 'POST' });
+  const firebaseLogin = await app.request('/api/admin/auth/firebase-login', { method: 'POST' });
   assert.equal(health.status, 200);
   assert.equal(login.status, 400);
+  assert.equal(firebaseLogin.status, 400);
 });

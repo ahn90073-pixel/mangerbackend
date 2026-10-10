@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       apply_admin_migration:
-        description: Apply Mange admin, authentication, employee and governorate migrations to the production database before deploying
+        description: Apply Mange admin, employee, governorate and Firebase admin-auth migrations to production before deploying
         required: true
         type: boolean
         default: false
@@ -46,15 +46,31 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_ADMIN_EMAILS: ${{ secrets.FIREBASE_ADMIN_EMAILS }}
+          INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
+          INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          for name in DATABASE_URL ADMIN_JWT_SECRET CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+          for name in DATABASE_URL ADMIN_JWT_SECRET FIREBASE_WEB_API_KEY FIREBASE_PROJECT_ID FIREBASE_ADMIN_EMAILS INITIAL_ADMIN_EMAIL INITIAL_ADMIN_PASSWORD CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Missing GitHub Actions secret: $name"
               exit 1
             fi
           done
+          admin_count=$(awk -v emails="$FIREBASE_ADMIN_EMAILS" 'BEGIN { n=split(emails, values, ","); count=0; for (i=1; i<=n; i++) if (values[i] ~ /[^[:space:]]/) count++; print count }')
+          if [[ "$admin_count" -gt 3 ]]; then
+            echo "::error::FIREBASE_ADMIN_EMAILS supports at most three accounts."
+            exit 1
+          fi
+
+      - name: Validate Firebase admin allowlist before production migration
+        env:
+          FIREBASE_ADMIN_EMAILS: ${{ secrets.FIREBASE_ADMIN_EMAILS }}
+          INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
+        run: node scripts/check-firebase-admin-allowlist-ci.js
 
       - name: Apply Mange admin database migration
         if: ${{ inputs.apply_admin_migration }}
@@ -65,6 +81,12 @@ jobs:
           sudo apt-get install --yes postgresql-client
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_admin_platform.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_super_admin_auth.sql
+
+      - name: Verify Neon Firebase schema before deploying
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/check-firebase-auth-schema-ci.js
 
       - name: Deploy Worker and set runtime secrets
         uses: cloudflare/wrangler-action@v4
@@ -76,13 +98,22 @@ jobs:
           secrets: |
             DATABASE_URL
             ADMIN_JWT_SECRET
+            FIREBASE_WEB_API_KEY
+            FIREBASE_PROJECT_ID
+            FIREBASE_ADMIN_EMAILS
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_ADMIN_EMAILS: ${{ secrets.FIREBASE_ADMIN_EMAILS }}
 
       - name: Integration test — authenticate against deployed Worker
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_ADMIN_EMAILS: ${{ secrets.FIREBASE_ADMIN_EMAILS }}
           INITIAL_ADMIN_EMAIL: ${{ secrets.INITIAL_ADMIN_EMAIL }}
           INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
         run: node scripts/check-super-admin-login-ci.js
