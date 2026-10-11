@@ -137,13 +137,13 @@ auth.post('/login', async (c) => {
     logLoginRejection(c, 'role_not_allowed', { role: user.role });
     return errorResponse('البريد الإلكتروني أو كلمة المرور غير صحيحة.', 401);
   }
-  if (!(await verifyPassword(password, user.password_hash))) {
-    const hashParts = typeof user.password_hash === 'string' ? user.password_hash.split('$') : [];
-    const parsedIterations = Number(hashParts[1]);
+  if (!(await verifyPassword(db, password, user.password_hash))) {
+    const hashAlgorithm = typeof user.password_hash === 'string' && user.password_hash.startsWith('$6$')
+      ? 'sha512crypt'
+      : 'missing_or_unsupported';
     logLoginRejection(c, 'password_hash_mismatch', {
       role: user.role,
-      hashAlgorithm: hashParts[0] || 'missing_or_malformed',
-      hashIterations: Number.isInteger(parsedIterations) ? parsedIterations : null,
+      hashAlgorithm,
     });
     return errorResponse('البريد الإلكتروني أو كلمة المرور غير صحيحة.', 401);
   }

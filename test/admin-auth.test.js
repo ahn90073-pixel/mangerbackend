@@ -18,12 +18,27 @@ test('admin JWT is signed, expires, and is rejected after tampering', async () =
   assert.equal(await verifyAdminToken(token, secret, now + (8 * 60 * 60)), null);
 });
 
-test('password hashes are salted and verification rejects wrong passwords', async () => {
-  const first = await hashPassword('a-secure-password-with-12');
-  const second = await hashPassword('a-secure-password-with-12');
-  assert.notEqual(first, second);
-  assert.equal(await verifyPassword('a-secure-password-with-12', first), true);
-  assert.equal(await verifyPassword('incorrect-password', first), false);
+test('employee password hashing and verification use parameterized Neon pgcrypto calls', async () => {
+  const correctPassword = 'a-secure-password-with-12';
+  const storedHash = '$6$rounds=500000$synthetic-salt$synthetic-hash';
+  const calls = [];
+  const db = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('gen_salt')) return [{ password_hash: storedHash }];
+      return [{ valid: params[0] === correctPassword && params[1] === storedHash }];
+    },
+  };
+
+  assert.equal(await hashPassword(db, correctPassword), storedHash);
+  assert.equal(await verifyPassword(db, correctPassword, storedHash), true);
+  assert.equal(await verifyPassword(db, 'incorrect-password', storedHash), false);
+  assert.equal(await verifyPassword(db, correctPassword, '$2a$12$unsupported-format'), false);
+  assert.equal(calls.length, 3);
+  assert.match(calls[0].sql, /crypt\(\$1::text, gen_salt\('sha512crypt', 500000\)\)/);
+  assert.match(calls[1].sql, /crypt\(\$1::text, \$2::text\)/);
+  assert.equal(calls[0].sql.includes(correctPassword), false);
+  assert.deepEqual(calls[0].params, [correctPassword]);
 });
 
 test('governorates are allow-listed and de-duplicated', () => {
