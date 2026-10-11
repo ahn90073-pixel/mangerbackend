@@ -31,7 +31,7 @@ employees.post('/', ...superAdminGuard, async (c) => {
   if (!governorates || governorates.length === 0) return errorResponse('اختر محافظة واحدة على الأقل للموظف.', 400);
 
   const db = createDb(c.env);
-  const passwordHash = await hashPassword(password);
+  const passwordHash = await hashPassword(db, password);
   let employee;
   try {
     [employee] = await db.query(
