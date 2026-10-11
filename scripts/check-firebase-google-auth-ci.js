@@ -1,10 +1,4 @@
-const firebaseApiKey = process.env.FIREBASE_WEB_API_KEY;
 const baseUrl = 'https://mangerbackend.ahn90073.workers.dev';
-
-if (!firebaseApiKey) {
-  console.error('Missing Firebase API key.');
-  process.exit(1);
-}
 
 try {
   const health = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(20000) });
