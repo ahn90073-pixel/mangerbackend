@@ -5,9 +5,11 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 DEFAULT_CURRENCY = "EGP"
+# Firebase Web API keys are public client configuration, not credentials.
+FIREBASE_WEB_API_KEY = "AIzaSyDnHE-oYAdjNUckPUX2CSPtA4ZUiDCDLw"
 
 [secrets]
-required = ["DATABASE_URL", "ADMIN_JWT_SECRET", "FIREBASE_WEB_API_KEY"]
+required = ["DATABASE_URL", "ADMIN_JWT_SECRET"]
 
 # Branch previews receive no production database credentials or signing secret.
 [previews.vars]
