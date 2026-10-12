@@ -23,10 +23,15 @@ async function ensureTenantSchema(db, tenant) {
   }
 }
 
-export async function listTenants(db, companyId = null) {
-  const rows = companyId
-    ? await db`SELECT id, display_name, tenant_schema_name FROM public.companies WHERE id = ${companyId} LIMIT 1`
-    : await db`SELECT id, display_name, tenant_schema_name FROM public.companies ORDER BY created_at DESC`;
+export async function listTenants(db, companyId = null, governorates = null) {
+  const rows = await db.query(
+    `SELECT id, display_name, tenant_schema_name, governorate
+     FROM public.companies
+     WHERE ($1::uuid IS NULL OR id = $1::uuid)
+       AND ($2::text[] IS NULL OR governorate = ANY($2::text[]))
+     ORDER BY created_at DESC`,
+    [companyId, governorates],
+  );
   for (const row of rows) {
     if (!TENANT_SCHEMA_RE.test(row.tenant_schema_name || '')) {
       throw new Error(`Company ${row.id} has no valid tenant schema.`);

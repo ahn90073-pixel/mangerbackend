@@ -2,13 +2,14 @@ import { Hono } from 'hono';
 import { createDb } from '../lib/db.js';
 import { tenantTable, listTenants } from '../lib/tenant.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
-import { superAdminGuard } from '../middleware/adminAuth.js';
+import { adminGuard } from '../middleware/adminAuth.js';
+import { assignedGovernorates } from '../lib/access.js';
 import { pagination, paginated, readJson, searchTerm, isUuid, isText, isMoney } from '../lib/validation.js';
 import { writeAudit } from '../lib/audit.js';
 
 const products = new Hono();
 
-async function getProductPage(db, c, forceStatus = null, view = 'review') {
+async function getProductPage(db, c, forceStatus = null, view = 'review', governorates = null) {
   const { page, limit, offset } = pagination(c, 24, 100);
   const requestedStatus = forceStatus || c.req.query('status') || 'pending';
   const search = searchTerm(c.req.query('q'));
@@ -20,7 +21,7 @@ async function getProductPage(db, c, forceStatus = null, view = 'review') {
     return { error: errorResponse('olderThanDays must be an integer from 0 to 3650.', 400) };
   }
 
-  let tenants = await listTenants(db, companyId || null);
+  let tenants = await listTenants(db, companyId || null, governorates);
   if (companyId && !tenants.length) return { data: paginated([], 0, page, limit) };
   if (!tenants.length) return { data: paginated([], 0, page, limit) };
 
@@ -117,19 +118,19 @@ async function getProductPage(db, c, forceStatus = null, view = 'review') {
   return { data: paginated(items, total, page, limit) };
 }
 
-products.get('/', ...superAdminGuard, async (c) => {
-  const result = await getProductPage(createDb(c.env), c);
+products.get('/', ...adminGuard, async (c) => {
+  const result = await getProductPage(createDb(c.env), c, null, 'review', assignedGovernorates(c.get('adminUser')));
   if (result.error) return result.error;
   return jsonResponse(ok(result.data));
 });
 
-products.get('/active', ...superAdminGuard, async (c) => {
-  const result = await getProductPage(createDb(c.env), c, 'active', 'active');
+products.get('/active', ...adminGuard, async (c) => {
+  const result = await getProductPage(createDb(c.env), c, 'active', 'active', assignedGovernorates(c.get('adminUser')));
   if (result.error) return result.error;
   return jsonResponse(ok(result.data));
 });
 
-products.patch('/:companyId/:productId', ...superAdminGuard, async (c) => {
+products.patch('/:companyId/:productId', ...adminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
@@ -165,7 +166,7 @@ products.patch('/:companyId/:productId', ...superAdminGuard, async (c) => {
   }
 
   const db = createDb(c.env);
-  const [tenant] = await listTenants(db, companyId);
+  const [tenant] = await listTenants(db, companyId, assignedGovernorates(c.get('adminUser')));
   if (!tenant) return errorResponse('Vendor not found.', 404);
   const table = tenantTable(tenant.tenant_schema_name, 'products');
   const categoryTable = tenantTable(tenant.tenant_schema_name, 'categories');
@@ -229,7 +230,7 @@ products.patch('/:companyId/:productId', ...superAdminGuard, async (c) => {
   return jsonResponse(ok({ ...updated, imageUrl: body.imageUrl ?? '' }, 'Pending product updated.'));
 });
 
-products.patch('/:companyId/:productId/review', ...superAdminGuard, async (c) => {
+products.patch('/:companyId/:productId/review', ...adminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
@@ -240,7 +241,7 @@ products.patch('/:companyId/:productId/review', ...superAdminGuard, async (c) =>
   if (decision === 'reject' && !isText(reason, 2000)) return errorResponse('A rejection reason of at most 2000 characters is required.', 400);
 
   const db = createDb(c.env);
-  const [tenant] = await listTenants(db, companyId);
+  const [tenant] = await listTenants(db, companyId, assignedGovernorates(c.get('adminUser')));
   if (!tenant) return errorResponse('Vendor not found.', 404);
   const table = tenantTable(tenant.tenant_schema_name, 'products');
   const reviewer = c.get('adminUser').id;
@@ -256,12 +257,12 @@ products.patch('/:companyId/:productId/review', ...superAdminGuard, async (c) =>
   return jsonResponse(ok(rows[0], decision === 'approve' ? 'Product approved and published.' : 'Product rejected.'));
 });
 
-products.patch('/:companyId/:productId/keep', ...superAdminGuard, async (c) => {
+products.patch('/:companyId/:productId/keep', ...adminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
   const db = createDb(c.env);
-  const [tenant] = await listTenants(db, companyId);
+  const [tenant] = await listTenants(db, companyId, assignedGovernorates(c.get('adminUser')));
   if (!tenant) return errorResponse('Vendor not found.', 404);
   const table = tenantTable(tenant.tenant_schema_name, 'products');
   const [product] = await db.query(`UPDATE ${table} SET admin_kept = TRUE, updated_at = NOW()
@@ -271,12 +272,12 @@ products.patch('/:companyId/:productId/keep', ...superAdminGuard, async (c) => {
   return jsonResponse(ok(product, 'Product marked to remain listed.'));
 });
 
-products.delete('/:companyId/:productId', ...superAdminGuard, async (c) => {
+products.delete('/:companyId/:productId', ...adminGuard, async (c) => {
   const companyId = c.req.param('companyId');
   const productId = c.req.param('productId');
   if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
   const db = createDb(c.env);
-  const [tenant] = await listTenants(db, companyId);
+  const [tenant] = await listTenants(db, companyId, assignedGovernorates(c.get('adminUser')));
   if (!tenant) return errorResponse('Vendor not found.', 404);
   const table = tenantTable(tenant.tenant_schema_name, 'products');
   const [product] = await db.query(`UPDATE ${table} SET status = 'archived', admin_archived_at = NOW(), updated_at = NOW()

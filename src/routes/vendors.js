@@ -3,8 +3,8 @@ import { createDb } from '../lib/db.js';
 import { EGYPT_GOVERNORATES, normalizeGovernorate } from '../lib/governorates.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
 import { adminGuard, superAdminGuard } from '../middleware/adminAuth.js';
-import { assignedGovernorates, isSuperAdmin } from '../lib/access.js';
-import { getVendorSummaries, redactVendorFinance } from '../services/vendorService.js';
+import { assignedGovernorates } from '../lib/access.js';
+import { getVendorSummaries } from '../services/vendorService.js';
 import { listAdminOrders } from '../services/orderService.js';
 import { pagination, paginated, readJson, searchTerm, isUuid, isMoney } from '../lib/validation.js';
 import { writeAudit } from '../lib/audit.js';
@@ -23,9 +23,7 @@ vendors.get('/', ...adminGuard, async (c) => {
     return matchesQuery && (status === 'all' || vendor.status === status);
   });
   const { page, limit, offset } = pagination(c, 20, 100);
-  const items = filtered.slice(offset, offset + limit).map((vendor) => (
-    isSuperAdmin(user) ? vendor : redactVendorFinance(vendor)
-  ));
+  const items = filtered.slice(offset, offset + limit);
   return jsonResponse(ok(paginated(items, filtered.length, page, limit)));
 });
 
@@ -37,19 +35,18 @@ vendors.get('/:id', ...adminGuard, async (c) => {
   const [vendor] = await getVendorSummaries(db, companyId, assignedGovernorates(user));
   if (!vendor) return errorResponse('Vendor not found.', 404);
   const [settlements, orders] = await Promise.all([
-    isSuperAdmin(user) ? db.query(
+    db.query(
       `SELECT id, company_id AS "vendorId", amount::numeric AS amount,
         commission_amount::numeric AS "commissionDeducted", net_amount::numeric AS "netAmount",
         currency, period, paid_at AS date, status, method, reference
        FROM public.admin_settlements WHERE company_id = $1::uuid ORDER BY created_at DESC LIMIT 50`,
       [companyId],
-    ) : Promise.resolve([]),
+    ),
     listAdminOrders(db, {
       companyId, page: 1, limit: 10, offset: 0, governorates: assignedGovernorates(user),
     }),
   ]);
-  const safeVendor = isSuperAdmin(user) ? vendor : redactVendorFinance(vendor);
-  return jsonResponse(ok({ ...safeVendor, settlements, recentOrders: orders.items }));
+  return jsonResponse(ok({ ...vendor, settlements, recentOrders: orders.items }));
 });
 
 vendors.patch('/:id/status', ...adminGuard, async (c) => {
@@ -91,7 +88,7 @@ vendors.patch('/:id/governorate', ...superAdminGuard, async (c) => {
   return jsonResponse(ok({ ...updated, availableGovernorates: EGYPT_GOVERNORATES }, 'تم تحديث محافظة التاجر.'));
 });
 
-vendors.patch('/:id/commission', ...superAdminGuard, async (c) => {
+vendors.patch('/:id/commission', ...adminGuard, async (c) => {
   const companyId = c.req.param('id');
   if (!isUuid(companyId)) return errorResponse('Vendor ID must be a UUID.', 400);
   const parsed = await readJson(c);
@@ -101,7 +98,12 @@ vendors.patch('/:id/commission', ...superAdminGuard, async (c) => {
     return errorResponse('type must be percentage or fixed; value must be non-negative (percentage max 100).', 400);
   }
   const db = createDb(c.env);
-  const [company] = await db`SELECT id FROM public.companies WHERE id = ${companyId} LIMIT 1`;
+  const governorates = assignedGovernorates(c.get('adminUser'));
+  const [company] = await db.query(
+    `SELECT id FROM public.companies
+     WHERE id = $1::uuid AND ($2::text[] IS NULL OR governorate = ANY($2::text[])) LIMIT 1`,
+    [companyId, governorates],
+  );
   if (!company) return errorResponse('Vendor not found.', 404);
   const [settings] = await db`
     INSERT INTO public.admin_company_settings (company_id, commission_type, commission_value, updated_by_admin_user_id, updated_at)

@@ -6,7 +6,7 @@ const companyId = '11111111-1111-4111-8111-111111111111';
 const productId = '22222222-2222-4222-8222-222222222222';
 const endpoint = `/api/admin/products/${companyId}/${productId}`;
 
-test('product data cannot be edited without an authenticated super-admin session', async () => {
+test('product data cannot be edited without an authenticated admin session', async () => {
   const response = await app.request(endpoint, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

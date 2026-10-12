@@ -61,7 +61,7 @@ export async function getVendorSummaries(db, companyId = null, governorates = nu
   const rows = await loadCompanyRows(db, companyId, governorates);
   if (!rows.length) return [];
   // Apply the idempotent tenant-product metadata hook for newly created companies.
-  const tenantRows = await listTenants(db, companyId);
+  const tenantRows = await listTenants(db, companyId, governorates);
   const schemaById = new Map(tenantRows.map((tenant) => [tenant.id, tenant.tenant_schema_name]));
   const metrics = await loadMetrics(db, rows.map((row) => ({ ...row, tenant_schema_name: schemaById.get(row.id) })));
 
