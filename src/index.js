@@ -12,6 +12,7 @@ import productRoutes from './routes/products.js';
 import settlementRoutes from './routes/settlements.js';
 import orderRoutes from './routes/orders.js';
 import auditLogRoutes from './routes/auditLogs.js';
+import storeRequestRoutes from './routes/storeRequests.js';
 
 const app = new Hono();
 
@@ -46,6 +47,7 @@ app.route('/api/admin/products', productRoutes);
 app.route('/api/admin/settlements', settlementRoutes);
 app.route('/api/admin/orders', orderRoutes);
 app.route('/api/admin/audit-logs', auditLogRoutes);
+app.route('/api/admin/store-requests', storeRequestRoutes);
 
 app.notFound((c) => errorResponse('Route not found.', 404));
 app.onError((error, c) => {

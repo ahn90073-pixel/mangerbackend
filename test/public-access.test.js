@@ -23,6 +23,7 @@ test('sensitive admin endpoints reject anonymous requests', async () => {
     '/api/admin/settlements',
     '/api/admin/audit-logs',
     '/api/admin/employees',
+    '/api/admin/store-requests',
     '/api/admin/auth/me',
   ];
   for (const path of paths) {
