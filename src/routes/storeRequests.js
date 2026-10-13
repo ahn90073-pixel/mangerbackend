@@ -7,6 +7,8 @@ import { writeAudit } from '../lib/audit.js';
 
 const storeRequests = new Hono();
 const requestStatuses = new Set(['pending', 'approved', 'rejected', 'all']);
+const documentTypes = new Set(['nationalId', 'commercialRegister', 'propertyContract']);
+const documentExtensions = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
 
 storeRequests.get('/', ...superAdminGuard, async (c) => {
   const status = c.req.query('status') || 'pending';
@@ -15,18 +17,50 @@ storeRequests.get('/', ...superAdminGuard, async (c) => {
   const db = createDb(c.env);
   const [count] = await db.query(
     `SELECT COUNT(*)::int AS total FROM public.merchant_store_requests
-     WHERE ($1::text = 'all' OR status = $1)`, [status],
+     WHERE (($1::text = 'all' AND status <> 'draft') OR status = $1)`, [status],
   );
   const items = await db.query(
-    `SELECT id, user_id AS "userId", email, full_name AS "fullName", phone,
-        store_name AS "storeName", governorate, status, admin_note AS "adminNote",
-        company_id AS "companyId", created_at AS "createdAt", reviewed_at AS "reviewedAt"
-     FROM public.merchant_store_requests
-     WHERE ($1::text = 'all' OR status = $1)
-     ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, created_at DESC, id DESC
+    `SELECT r.id, r.user_id AS "userId", r.email, r.full_name AS "fullName", r.phone,
+        r.store_name AS "storeName", r.governorate, r.status, r.admin_note AS "adminNote",
+        r.company_id AS "companyId", r.profile_data AS "profileData",
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'documentType', d.document_type, 'contentType', d.content_type,
+          'sizeBytes', d.size_bytes, 'uploadedAt', d.uploaded_at
+        ) ORDER BY d.document_type) FROM public.merchant_store_request_documents d WHERE d.request_id = r.id), '[]'::jsonb) AS documents,
+        r.created_at AS "createdAt", r.reviewed_at AS "reviewedAt"
+     FROM public.merchant_store_requests r
+     WHERE (($1::text = 'all' AND r.status <> 'draft') OR r.status = $1)
+     ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END, r.created_at DESC, r.id DESC
      LIMIT $2 OFFSET $3`, [status, limit, offset],
   );
   return jsonResponse(ok(paginated(items, Number(count?.total) || 0, page, limit)));
+});
+
+storeRequests.get('/:id/documents/:documentType', ...superAdminGuard, async (c) => {
+  const requestId = c.req.param('id');
+  const documentType = c.req.param('documentType');
+  if (!isUuid(requestId)) return errorResponse('معرّف الطلب غير صالح.', 400);
+  if (!documentTypes.has(documentType)) return errorResponse('نوع المستند غير مدعوم.', 400);
+  const db = createDb(c.env);
+  const [document] = await db`
+    SELECT d.content_type, d.document_type, encode(b.file_data, 'base64') AS file_data_base64
+    FROM public.merchant_store_request_documents d
+    JOIN public.merchant_store_request_document_blobs b ON b.document_id = d.id
+    WHERE d.request_id = ${requestId}::uuid AND d.document_type = ${documentType}
+    LIMIT 1
+  `;
+  if (!document?.file_data_base64) return errorResponse('مستند الطلب غير موجود.', 404);
+  const binary = atob(document.file_data_base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const extension = documentExtensions[document.content_type] || 'bin';
+  const headers = new Headers();
+  headers.set('Content-Type', document.content_type);
+  headers.set('Content-Disposition', `attachment; filename="${documentType}.${extension}"`);
+  headers.set('Cache-Control', 'private, no-store, max-age=0');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
+  return new Response(bytes, { status: 200, headers });
 });
 
 storeRequests.post('/:id/approve', ...superAdminGuard, async (c) => {
@@ -50,6 +84,7 @@ storeRequests.post('/:id/approve', ...superAdminGuard, async (c) => {
     if (message.includes('STORE_REQUEST_NOT_FOUND')) return errorResponse('طلب المتجر غير موجود.', 404);
     if (message.includes('STORE_REQUEST_NOT_PENDING')) return errorResponse('تمت معالجة هذا الطلب من قبل.', 409);
     if (message.includes('MERCHANT_ALREADY_HAS_STORE')) return errorResponse('يوجد متجر معتمد مرتبط بهذا الحساب بالفعل.', 409);
+    if (message.includes('STORE_REQUEST_PROFILE_INCOMPLETE')) return errorResponse('لا يمكن اعتماد الطلب حتى يكتمل الملف التجاري والمستندات الثلاثة.', 409);
     if (error?.code === '23505') return errorResponse('تعذر إنشاء المتجر بسبب تعارض في الاسم. راجع البيانات وحاول مرة أخرى.', 409);
     throw error;
   }
