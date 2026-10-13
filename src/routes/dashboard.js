@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createDb } from '../lib/db.js';
 import { tenantTable, listTenants } from '../lib/tenant.js';
 import { jsonResponse, ok } from '../lib/response.js';
-import { adminGuard } from '../middleware/adminAuth.js';
+import { superAdminGuard } from '../middleware/adminAuth.js';
 import { assignedGovernorates } from '../lib/access.js';
 import { getVendorSummaries } from '../services/vendorService.js';
 import { listAdminOrders } from '../services/orderService.js';
@@ -30,7 +30,7 @@ async function getProductCounts(db, companyIds = null, governorates = null) {
   }), { pending: 0, active: 0, rejected: 0 });
 }
 
-dashboard.get('/', ...adminGuard, async (c) => {
+dashboard.get('/', ...superAdminGuard, async (c) => {
   const db = createDb(c.env);
   const user = c.get('adminUser');
   const governorates = assignedGovernorates(user);

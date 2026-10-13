@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createDb } from '../lib/db.js';
 import { EGYPT_GOVERNORATES, normalizeGovernorate } from '../lib/governorates.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
-import { adminGuard, superAdminGuard } from '../middleware/adminAuth.js';
+import { superAdminGuard } from '../middleware/adminAuth.js';
 import { assignedGovernorates } from '../lib/access.js';
 import { getVendorSummaries } from '../services/vendorService.js';
 import { listAdminOrders } from '../services/orderService.js';
@@ -12,7 +12,7 @@ import { writeAudit } from '../lib/audit.js';
 const vendors = new Hono();
 const vendorStatuses = new Set(['active', 'suspended', 'pending_approval']);
 
-vendors.get('/', ...adminGuard, async (c) => {
+vendors.get('/', ...superAdminGuard, async (c) => {
   const user = c.get('adminUser');
   const rows = await getVendorSummaries(createDb(c.env), null, assignedGovernorates(user));
   const q = searchTerm(c.req.query('q')).toLocaleLowerCase();
@@ -27,7 +27,7 @@ vendors.get('/', ...adminGuard, async (c) => {
   return jsonResponse(ok(paginated(items, filtered.length, page, limit)));
 });
 
-vendors.get('/:id', ...adminGuard, async (c) => {
+vendors.get('/:id', ...superAdminGuard, async (c) => {
   const companyId = c.req.param('id');
   if (!isUuid(companyId)) return errorResponse('Vendor ID must be a UUID.', 400);
   const db = createDb(c.env);
@@ -49,7 +49,7 @@ vendors.get('/:id', ...adminGuard, async (c) => {
   return jsonResponse(ok({ ...vendor, settlements, recentOrders: orders.items }));
 });
 
-vendors.patch('/:id/status', ...adminGuard, async (c) => {
+vendors.patch('/:id/status', ...superAdminGuard, async (c) => {
   const companyId = c.req.param('id');
   if (!isUuid(companyId)) return errorResponse('Vendor ID must be a UUID.', 400);
   const parsed = await readJson(c);
@@ -88,7 +88,7 @@ vendors.patch('/:id/governorate', ...superAdminGuard, async (c) => {
   return jsonResponse(ok({ ...updated, availableGovernorates: EGYPT_GOVERNORATES }, 'تم تحديث محافظة التاجر.'));
 });
 
-vendors.patch('/:id/commission', ...adminGuard, async (c) => {
+vendors.patch('/:id/commission', ...superAdminGuard, async (c) => {
   const companyId = c.req.param('id');
   if (!isUuid(companyId)) return errorResponse('Vendor ID must be a UUID.', 400);
   const parsed = await readJson(c);

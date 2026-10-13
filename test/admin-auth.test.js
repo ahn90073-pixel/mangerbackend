@@ -4,6 +4,7 @@ import { createAdminToken, verifyAdminToken } from '../src/lib/adminToken.js';
 import { hashPassword, verifyPassword } from '../src/lib/password.js';
 import { EGYPT_GOVERNORATES, normalizeGovernorateList } from '../src/lib/governorates.js';
 import { assignedGovernorates, isSuperAdmin } from '../src/lib/access.js';
+import { requireSuperAdmin } from '../src/middleware/adminAuth.js';
 
 const secret = 'test-only-secret-that-is-long-enough-for-hmac';
 
@@ -53,4 +54,16 @@ test('only super admins receive unrestricted governorate scope', () => {
   assert.equal(isSuperAdmin(admin), true);
   assert.equal(assignedGovernorates(admin), null);
   assert.deepEqual(assignedGovernorates(employee), ['القاهرة']);
+});
+
+test('employees are denied super-admin-only routes while super admins pass', async () => {
+  let employeeNextCalled = false;
+  const denied = await requireSuperAdmin({ get: () => ({ role: 'employee' }) }, async () => { employeeNextCalled = true; });
+  assert.equal(denied.status, 403);
+  assert.equal(employeeNextCalled, false);
+
+  let adminNextCalled = false;
+  const allowed = await requireSuperAdmin({ get: () => ({ role: 'super_admin' }) }, async () => { adminNextCalled = true; });
+  assert.equal(allowed, undefined);
+  assert.equal(adminNextCalled, true);
 });

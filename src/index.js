@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { errorResponse } from './lib/response.js';
-import { adminGuard } from './middleware/adminAuth.js';
+import { superAdminGuard } from './middleware/adminAuth.js';
 import authRoutes from './routes/auth.js';
 import employeeRoutes from './routes/employees.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -25,7 +25,7 @@ app.use('*', cors({
 }));
 
 app.get('/health', (c) => c.json({ success: true, service: 'mange-admin-backend', status: 'healthy' }));
-app.get('/api/admin', ...adminGuard, (c) => c.json({
+app.get('/api/admin', ...superAdminGuard, (c) => c.json({
   success: true,
   service: 'mange-admin-backend',
   role: c.get('adminUser').role,
