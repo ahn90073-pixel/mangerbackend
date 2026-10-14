@@ -13,7 +13,7 @@ const now = Math.floor(Date.now()/1000); const b64 = (v) => Buffer.from(v).toStr
 const unsigned = `${b64(JSON.stringify({alg:'RS256',typ:'JWT'}))}.${b64(JSON.stringify({iss:account.client_email,scope:'https://www.googleapis.com/auth/firebase.messaging',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600}))}`;
 const signer = createSign('RSA-SHA256'); signer.update(unsigned);
 const assertion = `${unsigned}.${signer.sign(account.private_key,'base64url')}`;
-const oauth = await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer,assertion})});
+const oauth = await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
 if(!oauth.ok) throw new Error(`FCM OAuth failed (${oauth.status})`); const {access_token} = await oauth.json();
 const sent = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`,{method:'POST',headers:{Authorization:`Bearer ${access_token}`,'Content-Type':'application/json'},body:JSON.stringify({message:{token:contact.fcm_token,notification:{title:'اختبار',body:'هذا إشعار تجريبي'}}})});
 if(!sent.ok) throw new Error(`FCM send failed (${sent.status})`); console.log(JSON.stringify({sent:1,audience:'merchant'}));
