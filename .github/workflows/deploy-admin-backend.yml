@@ -46,10 +46,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          FCM_PUBLIC_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_PUBLIC_SERVICE_ACCOUNT_JSON }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          for name in DATABASE_URL ADMIN_JWT_SECRET CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+          for name in DATABASE_URL ADMIN_JWT_SECRET FCM_SERVICE_ACCOUNT_JSON FCM_PUBLIC_SERVICE_ACCOUNT_JSON CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Missing GitHub Actions secret: $name"
               exit 1
@@ -87,9 +89,13 @@ jobs:
           secrets: |
             DATABASE_URL
             ADMIN_JWT_SECRET
+            FCM_SERVICE_ACCOUNT_JSON
+            FCM_PUBLIC_SERVICE_ACCOUNT_JSON
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          FCM_PUBLIC_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_PUBLIC_SERVICE_ACCOUNT_JSON }}
 
       - name: Integration test — verify Firebase Google auth route
         run: node scripts/check-firebase-google-auth-ci.js
