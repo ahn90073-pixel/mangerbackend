@@ -68,10 +68,12 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
     `SELECT n.company_id, n.audience, n.whatsapp_phone,
       (n.fcm_token IS NOT NULL AND n.fcm_token <> '') AS has_push_token,
       COALESCE(n.push_enabled, FALSE) AS push_enabled,
+      u.full_name AS contact_name,
       c.display_name AS store_name,
       COUNT(*) OVER()::int AS _total
      FROM public.notification_contacts n
      LEFT JOIN public.companies c ON c.id = n.company_id
+     LEFT JOIN public.users u ON u.id = n.user_id
      WHERE ($1::text IS NULL OR n.audience = $1::text)
        AND ($2::uuid IS NULL OR n.company_id = $2::uuid)
      ORDER BY c.display_name NULLS LAST, n.audience, n.whatsapp_phone
@@ -81,7 +83,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
   const total = rows.length ? Number(rows[0]._total || 0) : 0;
   return jsonResponse(ok({
     items: rows.map((row) => ({
-      name: row.audience === 'customer' ? 'عميل' : 'تاجر',
+      name: row.contact_name || (row.audience === 'customer' ? 'عميل' : 'تاجر'),
       storeName: row.store_name || '—',
       audience: row.audience,
       companyId: row.company_id,
@@ -114,7 +116,6 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
        AND push_enabled IS TRUE
        AND fcm_token IS NOT NULL AND fcm_token <> ''
        AND ($3::uuid IS NULL OR company_id = $3::uuid)
-     ORDER BY company_id, whatsapp_phone
      LIMIT ${MAX_TOKENS_PER_SEND}`,
     [audience, appName, companyId],
   );
