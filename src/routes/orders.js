@@ -7,10 +7,11 @@ import { pagination, searchTerm, isUuid, isMoney, readJson } from '../lib/valida
 import { tenantTable } from '../lib/tenant.js';
 import { writeAudit } from '../lib/audit.js';
 import { assignedGovernorates } from '../lib/access.js';
+import { isFcmConfigured, sendFcmNotification } from '../lib/fcm.js';
 
 const orders = new Hono();
 const orderStatuses = new Set(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned', 'refunded']);
-const shipmentStatuses = new Set(['pending', 'label_created', 'picked_up', 'in_transit', 'delivered', 'failed', 'returned']);
+const shipmentStatuses = new Set(['pending', 'label_created', 'ready', 'picked_up', 'in_transit', 'delivered', 'failed', 'returned']);
 const transitions = {
   pending: new Set(['pending', 'confirmed', 'processing', 'cancelled']),
   confirmed: new Set(['confirmed', 'processing', 'shipped', 'delivered', 'cancelled']),
@@ -34,6 +35,35 @@ export function validateOrderUpdate(body) {
     errors.push('لم يتم تحديد أي حقل للتحديث.');
   }
   return errors;
+}
+
+async function notifyCustomerShipmentReady(env, db, orderNumber, vendorId, customerPhone) {
+  if (!isFcmConfigured(env, 'online-store')) return { status: 'not_configured', total: 0, sent: 0, failed: 0 };
+  if (!customerPhone) return { status: 'no_customer_phone', total: 0, sent: 0, failed: 0 };
+  const rows = await db.query(
+    `SELECT fcm_token
+     FROM public.notification_contacts
+     WHERE company_id = $1::uuid AND audience = 'customer'
+       AND push_enabled IS TRUE
+       AND fcm_token IS NOT NULL AND fcm_token <> ''
+       AND (
+         regexp_replace(COALESCE(whatsapp_phone, ''), '[^0-9]', '', 'g') = regexp_replace($2::text, '[^0-9]', '', 'g')
+         OR regexp_replace(COALESCE(whatsapp_phone, ''), '[^0-9]', '', 'g') =
+           CASE
+             WHEN regexp_replace($2::text, '[^0-9]', '', 'g') LIKE '00%' THEN substring(regexp_replace($2::text, '[^0-9]', '', 'g') FROM 3)
+             WHEN regexp_replace($2::text, '[^0-9]', '', 'g') LIKE '0%' THEN '20' || substring(regexp_replace($2::text, '[^0-9]', '', 'g') FROM 2)
+             ELSE regexp_replace($2::text, '[^0-9]', '', 'g')
+           END
+       )
+     LIMIT 500`,
+    [vendorId, customerPhone],
+  );
+  const result = await sendFcmNotification(env, rows.map((row) => row.fcm_token), {
+    title: 'تم تجهيز طردك',
+    body: `تم تجهيز طردك رقم ${orderNumber} وسيتم استكمال الشحن قريبًا.`,
+    appName: 'online-store',
+  });
+  return { status: result.failed ? 'completed_with_failures' : 'sent', total: rows.length, sent: result.sent, failed: result.failed };
 }
 
 async function loadCompany(db, vendorId, governorates = null) {
@@ -203,7 +233,10 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
   const shipmentStatus = body.shipmentStatus
     ?? (status === 'shipped' ? 'in_transit' : status === 'delivered' ? 'delivered' : status === 'returned' ? 'returned' : null);
   const [current] = await db.query(
-    `SELECT status FROM ${orderTable} WHERE id = $1::uuid AND company_id = $2::uuid LIMIT 1`,
+    `SELECT o.status, s.status AS shipment_status
+     FROM ${orderTable} o
+     LEFT JOIN ${shipmentTable} s ON s.order_id = o.id
+     WHERE o.id = $1::uuid AND o.company_id = $2::uuid LIMIT 1`,
     [orderId, vendorId],
   );
   if (!current) return errorResponse('Order not found.', 404);
@@ -213,9 +246,11 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
 
   const updateSql = `
     WITH locked AS (
-      SELECT id, status FROM ${orderTable}
-      WHERE id = $1::uuid AND company_id = $2::uuid
-      FOR UPDATE
+      SELECT o.id, o.status, s.status AS shipment_status
+      FROM ${orderTable} o
+      LEFT JOIN ${shipmentTable} s ON s.order_id = o.id
+      WHERE o.id = $1::uuid AND o.company_id = $2::uuid
+      FOR UPDATE OF o
     ), changed AS (
       UPDATE ${orderTable} o SET
         status = COALESCE($3::text, o.status),
@@ -234,7 +269,8 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
           OR (old.status = 'shipped' AND $3::text = ANY(ARRAY['delivered', 'returned']))
           OR (old.status = 'delivered' AND $3::text = ANY(ARRAY['returned', 'refunded']))
           OR (old.status = 'returned' AND $3::text = 'refunded'))
-      RETURNING o.id, o.address_id, o.status, o.shipping_total, o.grand_total, old.status AS previous_status
+      RETURNING o.id, o.address_id, o.status, o.shipping_total, o.grand_total,
+        old.status AS previous_status, old.shipment_status AS previous_shipment_status
     ), restocked AS (
       UPDATE ${productTable} p
       SET stock_quantity = p.stock_quantity + line_item.quantity, updated_at = NOW()
@@ -266,6 +302,7 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
       RETURNING id
     )
     SELECT current_order.id, current_order.status, current_order.previous_status,
+      current_order.previous_shipment_status,
       current_order.shipping_total, current_order.grand_total,
       (SELECT count(*)::int FROM restocked) AS restocked_products,
       (SELECT id FROM saved_shipment LIMIT 1) AS shipment_id
@@ -286,6 +323,16 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
   ];
   const [updated] = await db.query(updateSql, params);
   if (!updated) return errorResponse('تعذر تطبيق تحديث الحالة؛ ربما تغيرت حالة الطلب بالتزامن. أعد تحميل الطلب.', 409);
+  const data = await loadOrderDetails(db, vendorId, orderId, governorates);
+  let notification = { status: 'not_requested', total: 0, sent: 0, failed: 0 };
+  if (shipmentStatus === 'ready' && updated.previous_shipment_status !== 'ready') {
+    try {
+      notification = await notifyCustomerShipmentReady(c.env, db, data?.id || orderId, vendorId, data?.customer?.phone || '');
+    } catch {
+      notification = { status: 'failed', total: 0, sent: 0, failed: 1 };
+      console.error('Order ready notification failed:', JSON.stringify({ orderId, vendorId }));
+    }
+  }
   await writeAudit(db, c, c.get('adminUser')?.id ?? null, 'order.update', 'order', orderId, {
     vendorId,
     previousStatus: updated.previous_status,
@@ -295,8 +342,8 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
     trackingNumberChanged: body.trackingNumber !== undefined,
     shippingFee: body.shippingFee ?? null,
     restockedProducts: updated.restocked_products,
+    notification,
   });
-  const data = await loadOrderDetails(db, vendorId, orderId, governorates);
   return jsonResponse(ok(data, 'تم تحديث الطلب وبيانات الشحن.'));
 });
 

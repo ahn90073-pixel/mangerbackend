@@ -13,6 +13,7 @@ import settlementRoutes from './routes/settlements.js';
 import orderRoutes from './routes/orders.js';
 import auditLogRoutes from './routes/auditLogs.js';
 import storeRequestRoutes from './routes/storeRequests.js';
+import notificationRoutes from './routes/notifications.js';
 
 const app = new Hono();
 
@@ -37,6 +38,7 @@ app.get('/api/admin', ...superAdminGuard, (c) => c.json({
     '/api/admin/dashboard',
     '/api/admin/vendors',
     '/api/admin/orders',
+    '/api/admin/notifications',
   ],
 }));
 app.route('/api/admin/auth', authRoutes);
@@ -48,6 +50,7 @@ app.route('/api/admin/settlements', settlementRoutes);
 app.route('/api/admin/orders', orderRoutes);
 app.route('/api/admin/audit-logs', auditLogRoutes);
 app.route('/api/admin/store-requests', storeRequestRoutes);
+app.route('/api/admin/notifications', notificationRoutes);
 
 app.notFound((c) => errorResponse('Route not found.', 404));
 app.onError((error, c) => {
