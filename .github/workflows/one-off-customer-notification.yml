@@ -1,0 +1,20 @@
+name: One-off customer notification test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Send test notification
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FCM_PUBLIC_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_PUBLIC_SERVICE_ACCOUNT_JSON }}
+        run: node scripts/one-off-customer-notification.mjs
