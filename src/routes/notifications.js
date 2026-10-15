@@ -66,7 +66,8 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
   const { page, limit, offset } = pagination(c, 50, 100);
   const values = [audience, companyId, limit, offset];
   const rows = await db.query(
-    `SELECT n.company_id, n.audience, n.whatsapp_phone,
+    `SELECT n.company_id, n.audience, n.whatsapp_phone, n.platform, n.app_version, n.last_seen_at,
+      CASE WHEN n.fcm_token IS NOT NULL AND n.fcm_token <> '' THEN CONCAT(LEFT(n.fcm_token, 8), '…', RIGHT(n.fcm_token, 6)) ELSE NULL END AS token_hint,
       (n.fcm_token IS NOT NULL AND n.fcm_token <> '') AS has_push_token,
       COALESCE(n.push_enabled, FALSE) AS push_enabled,
       u.full_name AS contact_name,
@@ -89,6 +90,10 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
       audience: row.audience,
       companyId: row.company_id,
       whatsappPhone: row.whatsapp_phone || '—',
+      platform: row.platform || '—',
+      appVersion: row.app_version || '—',
+      lastSeenAt: row.last_seen_at,
+      tokenHint: row.token_hint || '—',
       hasPushToken: Boolean(row.has_push_token),
       pushEnabled: Boolean(row.push_enabled),
     })),
