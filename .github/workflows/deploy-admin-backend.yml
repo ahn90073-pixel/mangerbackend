@@ -101,7 +101,7 @@ jobs:
           with open('/tmp/mangerbackend-runtime-secrets.json', 'w', encoding='utf-8') as handle:
               json.dump({name: os.environ[name] for name in ('DATABASE_URL', 'ADMIN_JWT_SECRET', 'FCM_SERVICE_ACCOUNT_JSON', 'FCM_PUBLIC_SERVICE_ACCOUNT_JSON')}, handle)
           PY
-          npx --no-install wrangler secret bulk /tmp/mangerbackend-runtime-secrets.json
+          npx --no-install wrangler versions secret bulk /tmp/mangerbackend-runtime-secrets.json
           rm -f /tmp/mangerbackend-runtime-secrets.json
 
       - name: Integration test — verify Firebase Google auth route
