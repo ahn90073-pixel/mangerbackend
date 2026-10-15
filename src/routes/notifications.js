@@ -3,7 +3,7 @@ import { createDb } from '../lib/db.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
 import { superAdminGuard } from '../middleware/adminAuth.js';
 import { isUuid, pagination, readJson } from '../lib/validation.js';
-import { isFcmConfigured, sendFcmNotification } from '../lib/fcm.js';
+import { isFcmConfigured, sendFcmNotification, uploadFirebaseNotificationImage } from '../lib/fcm.js';
 import { writeAudit } from '../lib/audit.js';
 
 const notifications = new Hono();
@@ -17,6 +17,7 @@ function validateCampaign(body) {
   if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 120) errors.push('عنوان الإشعار مطلوب وبحد أقصى 120 حرفًا.');
   if (typeof body.body !== 'string' || !body.body.trim() || body.body.length > 500) errors.push('نص الإشعار مطلوب وبحد أقصى 500 حرف.');
   if (body.companyId !== undefined && body.companyId !== null && !isUuid(body.companyId)) errors.push('معرّف المتجر غير صالح.');
+  if (body.imageData !== undefined && body.imageData !== null && (typeof body.imageData !== 'string' || body.imageData.length > 2_100_000)) errors.push('صورة الإشعار غير صالحة أو حجمها أكبر من 1.5 ميجابايت.');
   return errors;
 }
 
@@ -101,11 +102,20 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
   const errors = validateCampaign(parsed.body);
   if (errors.length) return errorResponse('يرجى مراجعة بيانات الحملة.', 400, errors);
 
-  const { audience, title, body, companyId = null } = parsed.body;
+  const { audience, title, body, companyId = null, imageData = null, imageName = 'notification-image' } = parsed.body;
   const appName = audience === 'customer' ? 'online-store' : 'taget';
   if (!isFcmConfigured(c.env, appName)) {
     const secretName = audience === 'customer' ? 'FCM_PUBLIC_SERVICE_ACCOUNT_JSON' : 'FCM_SERVICE_ACCOUNT_JSON';
     return errorResponse(`${secretName} غير مهيأ؛ أضف اعتماد Firebase الخاص بهذا التطبيق قبل الإرسال.`, 503);
+  }
+  let imageUrl = null;
+  if (imageData) {
+    try {
+      imageUrl = await uploadFirebaseNotificationImage(c.env, imageData, imageName, appName);
+      if (!imageUrl) return errorResponse('تعذر تجهيز صورة الإشعار؛ استخدم PNG أو JPG أو WEBP بحجم أقل من 1.5 ميجابايت.', 400);
+    } catch {
+      return errorResponse('تعذر رفع صورة الإشعار إلى Firebase Storage.', 502);
+    }
   }
   const db = createDb(c.env);
   const rows = await db.query(
@@ -120,7 +130,7 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
     [audience, appName, companyId],
   );
   const tokens = rows.map((row) => row.fcm_token).filter(Boolean);
-  const result = await sendFcmNotification(c.env, tokens, { title: title.trim(), body: body.trim(), appName });
+  const result = await sendFcmNotification(c.env, tokens, { title: title.trim(), body: body.trim(), imageUrl, appName });
   const summary = { audience, companyId, total: tokens.length, sent: result.sent, failed: result.failed };
   await safeAudit(db, c, 'notification.send', summary);
   return jsonResponse(ok(summary, result.failed ? 'اكتمل الإرسال مع وجود إخفاقات.' : 'تم إرسال الإشعار.'));

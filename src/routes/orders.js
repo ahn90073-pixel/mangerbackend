@@ -37,30 +37,34 @@ export function validateOrderUpdate(body) {
   return errors;
 }
 
-async function notifyCustomerShipmentReady(env, db, orderNumber, vendorId, customerPhone) {
+const shipmentNotificationCopy = {
+  ready: ['تم تجهيز طردك', (orderNumber) => `تم تجهيز طلبك رقم ${orderNumber} وسيتم شحنه قريبًا.`],
+  picked_up: ['تم استلام طردك', (orderNumber) => `استلمت شركة الشحن طلبك رقم ${orderNumber}.`],
+  in_transit: ['طلبك في الطريق', (orderNumber) => `طلبك رقم ${orderNumber} أصبح في الطريق إليك.`],
+  delivered: ['تم تسليم طلبك', (orderNumber) => `تم تسجيل تسليم طلبك رقم ${orderNumber}.`],
+  failed: ['تعذر تسليم الطلب', (orderNumber) => `تعذر تسليم طلبك رقم ${orderNumber}. يرجى التواصل مع المتجر.`],
+  returned: ['تم إرجاع الطلب', (orderNumber) => `تم تسجيل إرجاع طلبك رقم ${orderNumber}.`],
+};
+
+async function notifyCustomerShipment(env, db, orderNumber, shipmentStatus, customerPhone) {
   if (!isFcmConfigured(env, 'online-store')) return { status: 'not_configured', total: 0, sent: 0, failed: 0 };
   if (!customerPhone) return { status: 'no_customer_phone', total: 0, sent: 0, failed: 0 };
+  const copy = shipmentNotificationCopy[shipmentStatus];
+  if (!copy) return { status: 'not_requested', total: 0, sent: 0, failed: 0 };
   const rows = await db.query(
     `SELECT fcm_token
      FROM public.notification_contacts
-     WHERE company_id = $1::uuid AND audience = 'customer'
+     WHERE audience = 'customer' AND app_name = 'online-store'
        AND push_enabled IS TRUE
        AND fcm_token IS NOT NULL AND fcm_token <> ''
-       AND (
-         regexp_replace(COALESCE(whatsapp_phone, ''), '[^0-9]', '', 'g') = regexp_replace($2::text, '[^0-9]', '', 'g')
-         OR regexp_replace(COALESCE(whatsapp_phone, ''), '[^0-9]', '', 'g') =
-           CASE
-             WHEN regexp_replace($2::text, '[^0-9]', '', 'g') LIKE '00%' THEN substring(regexp_replace($2::text, '[^0-9]', '', 'g') FROM 3)
-             WHEN regexp_replace($2::text, '[^0-9]', '', 'g') LIKE '0%' THEN '20' || substring(regexp_replace($2::text, '[^0-9]', '', 'g') FROM 2)
-             ELSE regexp_replace($2::text, '[^0-9]', '', 'g')
-           END
-       )
+       AND RIGHT(regexp_replace(COALESCE(whatsapp_phone, ''), '[^0-9]', '', 'g'), 10) =
+           RIGHT(regexp_replace($1::text, '[^0-9]', '', 'g'), 10)
      LIMIT 500`,
-    [vendorId, customerPhone],
+    [customerPhone],
   );
   const result = await sendFcmNotification(env, rows.map((row) => row.fcm_token), {
-    title: 'تم تجهيز طردك',
-    body: `تم تجهيز طردك رقم ${orderNumber} وسيتم استكمال الشحن قريبًا.`,
+    title: copy[0],
+    body: copy[1](orderNumber),
     appName: 'online-store',
   });
   return { status: result.failed ? 'completed_with_failures' : 'sent', total: rows.length, sent: result.sent, failed: result.failed };
@@ -325,9 +329,9 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
   if (!updated) return errorResponse('تعذر تطبيق تحديث الحالة؛ ربما تغيرت حالة الطلب بالتزامن. أعد تحميل الطلب.', 409);
   const data = await loadOrderDetails(db, vendorId, orderId, governorates);
   let notification = { status: 'not_requested', total: 0, sent: 0, failed: 0 };
-  if (shipmentStatus === 'ready' && updated.previous_shipment_status !== 'ready') {
+  if (shipmentStatus !== updated.previous_shipment_status && shipmentNotificationCopy[shipmentStatus]) {
     try {
-      notification = await notifyCustomerShipmentReady(c.env, db, data?.id || orderId, vendorId, data?.customer?.phone || '');
+      notification = await notifyCustomerShipment(c.env, db, data?.id || orderId, shipmentStatus, data?.customer?.phone || '');
     } catch {
       notification = { status: 'failed', total: 0, sent: 0, failed: 1 };
       console.error('Order ready notification failed:', JSON.stringify({ orderId, vendorId }));

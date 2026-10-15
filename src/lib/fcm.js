@@ -1,4 +1,5 @@
 const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+const STORAGE_SCOPE = 'https://www.googleapis.com/auth/devstorage.full_control';
 const TOKEN_AUDIENCE = 'https://oauth2.googleapis.com/token';
 
 function base64UrlEncode(value) {
@@ -28,12 +29,12 @@ export function isFcmConfigured(env, appName = 'taget') {
   return Boolean(decodeServiceAccount(env, appName));
 }
 
-async function createAccessToken(account) {
+async function createAccessToken(account, scope = FCM_SCOPE) {
   const now = Math.floor(Date.now() / 1000);
   const header = base64UrlEncode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claim = base64UrlEncode(JSON.stringify({
     iss: account.clientEmail,
-    scope: FCM_SCOPE,
+    scope,
     aud: TOKEN_AUDIENCE,
     iat: now,
     exp: now + 3600,
@@ -72,7 +73,49 @@ async function createAccessToken(account) {
   return payload.access_token;
 }
 
-export async function sendFcmNotification(env, tokens, { title, body, appName = 'taget' }) {
+function parseImageData(imageData) {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(imageData || ''));
+  if (!match) return null;
+  const binary = atob(match[2]);
+  if (binary.length > 1_500_000) return null;
+  return { contentType: match[1], bytes: Uint8Array.from(binary, (character) => character.charCodeAt(0)) };
+}
+
+export async function uploadFirebaseNotificationImage(env, imageData, fileName = 'notification-image', appName = 'online-store') {
+  const account = decodeServiceAccount(env, appName);
+  const image = parseImageData(imageData);
+  if (!account || !image) return null;
+  const accessToken = await createAccessToken(account, STORAGE_SCOPE);
+  const extension = image.contentType.split('/')[1].replace('jpeg', 'jpg');
+  const objectName = `notification-assets/${crypto.randomUUID()}-${String(fileName).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'image'}.${extension}`;
+  const downloadToken = crypto.randomUUID();
+  const bucket = `${account.projectId}.firebasestorage.app`;
+  const boundary = `----manus-${crypto.randomUUID()}`;
+  const metadata = JSON.stringify({
+    name: objectName,
+    contentType: image.contentType,
+    metadata: { firebaseStorageDownloadTokens: downloadToken },
+  });
+  const encoder = new TextEncoder();
+  const prefix = encoder.encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${image.contentType}\r\n\r\n`);
+  const suffix = encoder.encode(`\r\n--${boundary}--`);
+  const payload = new Uint8Array(prefix.length + image.bytes.length + suffix.length);
+  payload.set(prefix, 0);
+  payload.set(image.bytes, prefix.length);
+  payload.set(suffix, prefix.length + image.bytes.length);
+  const response = await fetch(`https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucket)}/o?uploadType=multipart&name=${encodeURIComponent(objectName)}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: payload,
+  });
+  if (!response.ok) throw new Error('Firebase Storage image upload failed');
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(objectName)}?alt=media&token=${encodeURIComponent(downloadToken)}`;
+}
+
+export async function sendFcmNotification(env, tokens, { title, body, imageUrl = null, appName = 'taget' }) {
   const account = decodeServiceAccount(env, appName);
   const cleanTokens = [...new Set((tokens || []).filter((token) => typeof token === 'string' && token.trim()))];
   if (!account) return { configured: false, sent: 0, failed: cleanTokens.length };
@@ -101,7 +144,7 @@ export async function sendFcmNotification(env, tokens, { title, body, appName = 
           body: JSON.stringify({
             message: {
               token,
-              notification: { title, body },
+              notification: { title, body, ...(imageUrl ? { image: imageUrl } : {}) },
               android: {
                 priority: 'HIGH',
                 notification: {
@@ -110,6 +153,7 @@ export async function sendFcmNotification(env, tokens, { title, body, appName = 
                   default_sound: true,
                   default_vibrate_timings: true,
                   notification_priority: 'PRIORITY_HIGH',
+                  ...(imageUrl ? { image: imageUrl } : {}),
                 },
               },
             },
