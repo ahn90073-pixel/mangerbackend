@@ -98,7 +98,22 @@ export async function sendFcmNotification(env, tokens, { title, body, appName = 
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ message: { token, notification: { title, body } } }),
+          body: JSON.stringify({
+            message: {
+              token,
+              notification: { title, body },
+              android: {
+                priority: 'HIGH',
+                notification: {
+                  channel_id: 'store-default',
+                  sound: 'default',
+                  default_sound: true,
+                  default_vibrate_timings: true,
+                  notification_priority: 'PRIORITY_HIGH',
+                },
+              },
+            },
+          }),
         });
         return response.ok;
       } catch {
