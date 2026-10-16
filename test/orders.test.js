@@ -35,3 +35,13 @@ test('admin order list exposes merchant shipment details and supports shipment-s
   assert.match(orderService, /s\.status AS shipment_status, s\.carrier, s\.tracking_number/);
   assert.match(orderService, /customerPhone: row\.customer_phone/);
 });
+
+test('admin shipment notifications include active public device tokens and return delivery status', () => {
+  const notifier = orderRoutes.slice(orderRoutes.indexOf('async function notifyCustomerShipment'), orderRoutes.indexOf('async function loadCompany'));
+  assert.match(notifier, /FROM public\.notification_contacts n/);
+  assert.match(notifier, /UNION/);
+  assert.match(notifier, /FROM app\.device_tokens d/);
+  assert.match(notifier, /d\.company_id IS NULL/);
+  assert.match(notifier, /d\.enabled IS TRUE/);
+  assert.match(orderRoutes, /ok\(\{ \.\.\.data, notification \}/);
+});
