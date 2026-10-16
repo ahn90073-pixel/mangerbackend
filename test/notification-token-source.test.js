@@ -46,9 +46,10 @@ test('customer campaigns can be restricted to one opaque device reference withou
   assert.match(routes, /\^\[a-f0-9\]\{32\}\$/i);
 });
 
-test('notification contacts return only a shortened token hint', () => {
+test('notification contacts return no full or partial FCM token values', () => {
   const contactsRoute = routes.slice(routes.indexOf("notifications.get('/contacts'"), routes.indexOf("notifications.post('/send'"));
-  assert.match(contactsRoute, /LEFT\(fcm_token, 8\).*RIGHT\(fcm_token, 6\)/s);
+  assert.doesNotMatch(contactsRoute, /token_hint|tokenHint|LEFT\(fcm_token|RIGHT\(fcm_token/);
+  assert.match(contactsRoute, /MD5\(fcm_token\) ELSE NULL END AS token_ref/);
   assert.doesNotMatch(contactsRoute, /items:\s*rows\s*\}\)/);
 });
 
