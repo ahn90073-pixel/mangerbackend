@@ -92,6 +92,39 @@ notifications.get('/status', ...superAdminGuard, async (c) => {
   }));
 });
 
+notifications.get('/customer-directory', ...superAdminGuard, async (c) => {
+  const db = createDb(c.env);
+  const { page, limit, offset } = pagination(c, 50, 100);
+  const rows = await db.query(
+    `WITH identified_devices AS (
+       SELECT DISTINCT ON (COALESCE(d.customer_id::text, d.user_id::text, d.token))
+         COALESCE(d.customer_id::text, d.user_id::text, d.token) AS customer_key,
+         NULLIF(BTRIM(d.location_city), '') AS location_city,
+         COALESCE(NULLIF(BTRIM(customer.phone), ''), NULLIF(BTRIM(u.phone), '')) AS whatsapp_phone,
+         d.last_seen_at
+       FROM app.device_tokens d
+       LEFT JOIN app.customers customer ON customer.id = d.customer_id
+       LEFT JOIN app.users u ON u.id = d.user_id
+       WHERE d.company_id IS NULL
+         AND d.token IS NOT NULL AND d.token <> ''
+       ORDER BY COALESCE(d.customer_id::text, d.user_id::text, d.token), d.last_seen_at DESC NULLS LAST
+     )
+     SELECT location_city, whatsapp_phone, COUNT(*) OVER()::int AS _total
+     FROM identified_devices
+     ORDER BY location_city NULLS LAST, customer_key
+     LIMIT $1 OFFSET $2`,
+    [limit, offset],
+  );
+  const total = rows.length ? Number(rows[0]._total || 0) : 0;
+  return jsonResponse(ok({
+    items: rows.map((row) => ({
+      city: row.location_city || null,
+      whatsappPhone: row.whatsapp_phone || null,
+    })),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  }));
+});
+
 notifications.get('/contacts', ...superAdminGuard, async (c) => {
   const db = createDb(c.env);
   const audience = c.req.query('audience') || null;
