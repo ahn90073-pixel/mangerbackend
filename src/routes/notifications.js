@@ -218,4 +218,34 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
   return jsonResponse(ok(summary, result.failed ? 'اكتمل الإرسال مع وجود إخفاقات.' : 'تم إرسال الإشعار.'));
 });
 
+notifications.get('/shipment-requests', ...superAdminGuard, async (c) => {
+  const status = c.req.query('status') || 'all';
+  if (!['all', 'pending', 'processed'].includes(status)) return errorResponse('حالة طلب الشحن غير صالحة.', 400);
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10) || 50));
+  const db = createDb(c.env);
+  const rows = await db.query(
+    `SELECT r.id, r.company_id, r.order_id, r.order_number, r.status,
+       r.requested_at, r.processed_at, c.display_name AS company_name,
+       c.legal_name, u.full_name AS requested_by_name
+     FROM public.shipment_activation_requests r
+     LEFT JOIN public.companies c ON c.id = r.company_id
+     LEFT JOIN public.users u ON u.id = r.requested_by
+     WHERE ($1::text = 'all' OR r.status = $1::text)
+     ORDER BY r.requested_at DESC
+     LIMIT $2`,
+    [status, limit],
+  );
+  return jsonResponse(ok({ items: rows.map((row) => ({
+    id: row.id,
+    companyId: row.company_id,
+    companyName: row.company_name || row.legal_name || '—',
+    orderId: row.order_id,
+    orderNumber: row.order_number,
+    status: row.status,
+    requestedBy: row.requested_by_name || '—',
+    requestedAt: row.requested_at,
+    processedAt: row.processed_at,
+  })) }));
+});
+
 export default notifications;
