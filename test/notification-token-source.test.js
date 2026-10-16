@@ -38,6 +38,14 @@ test('customer campaigns send to enabled public app device tokens and preserve l
   assert.match(sendRoute, /\$3::uuid IS NULL/);
 });
 
+test('customer campaigns can be restricted to one opaque device reference without exposing full tokens', () => {
+  assert.match(routes, /targetTokenRef/);
+  assert.match(routes, /MD5\(fcm_token\) = \$4::text/);
+  assert.match(routes, /MD5\(d\.token\) = \$4::text/);
+  assert.match(routes, /MD5\(fcm_token\) ELSE NULL END AS token_ref/);
+  assert.match(routes, /\^\[a-f0-9\]\{32\}\$/i);
+});
+
 test('notification contacts return only a shortened token hint', () => {
   const contactsRoute = routes.slice(routes.indexOf("notifications.get('/contacts'"), routes.indexOf("notifications.post('/send'"));
   assert.match(contactsRoute, /LEFT\(fcm_token, 8\).*RIGHT\(fcm_token, 6\)/s);
