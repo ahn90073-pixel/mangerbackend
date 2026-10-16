@@ -203,12 +203,12 @@ products.patch('/:companyId/:productId', ...adminGuard, async (c) => {
   const idParam = `$${values.length - 1}`;
   const companyParam = `$${values.length}`;
   const query = `UPDATE ${table} SET ${sets.map((set) => set.replaceAll('$COMPANY_ID', companyParam)).join(', ')}, updated_at = NOW()
-    WHERE id = ${idParam} AND company_id = ${companyParam} AND status = 'pending'
+    WHERE id = ${idParam} AND company_id = ${companyParam} AND status IN ('pending', 'active', 'rejected')
     RETURNING id, company_id, name, sku, description, short_description, price, compare_at_price, cost_price,
       currency, weight_grams, brand, seller_name, trusted_seller, free_shipping, is_featured, is_flash_deal,
       badge, stock_quantity, category_id, metadata`;
   const [updated] = await db.query(query, values);
-  if (!updated) return errorResponse('Pending product not found or already reviewed.', 409);
+  if (!updated) return errorResponse('Product not found or not editable.', 409);
 
   if (body.imageUrl !== undefined) {
     const imageTable = tenantTable(tenant.tenant_schema_name, 'product_images');
@@ -227,7 +227,25 @@ products.patch('/:companyId/:productId', ...adminGuard, async (c) => {
     }
   }
   await writeAudit(db, c, c.get('adminUser').id, 'product.update', 'product', productId, { companyId, fields: Object.keys(body) });
-  return jsonResponse(ok({ ...updated, imageUrl: body.imageUrl ?? '' }, 'Pending product updated.'));
+  return jsonResponse(ok({ ...updated, imageUrl: body.imageUrl ?? '' }, 'Product updated.'));
+});
+
+products.patch('/:companyId/:productId/resubmit', ...adminGuard, async (c) => {
+  const companyId = c.req.param('companyId');
+  const productId = c.req.param('productId');
+  if (!isUuid(companyId) || !isUuid(productId)) return errorResponse('Company and product IDs must be UUIDs.', 400);
+  const db = createDb(c.env);
+  const [tenant] = await listTenants(db, companyId, assignedGovernorates(c.get('adminUser')));
+  if (!tenant) return errorResponse('Vendor not found.', 404);
+  const table = tenantTable(tenant.tenant_schema_name, 'products');
+  const [product] = await db.query(`UPDATE ${table}
+    SET status = 'pending', published_at = NULL, reviewed_at = NULL,
+        reviewed_by_admin_user_id = NULL, rejection_reason = NULL, updated_at = NOW()
+    WHERE id = $1 AND company_id = $2 AND status IN ('active', 'rejected')
+    RETURNING id, company_id, name, status`, [productId, companyId]);
+  if (!product) return errorResponse('Product must be active or rejected before it can be resubmitted.', 409);
+  await writeAudit(db, c, c.get('adminUser').id, 'product.resubmit', 'product', productId, { companyId });
+  return jsonResponse(ok(product, 'Product resubmitted for review.'));
 });
 
 products.patch('/:companyId/:productId/review', ...adminGuard, async (c) => {
@@ -281,10 +299,10 @@ products.delete('/:companyId/:productId', ...adminGuard, async (c) => {
   if (!tenant) return errorResponse('Vendor not found.', 404);
   const table = tenantTable(tenant.tenant_schema_name, 'products');
   const [product] = await db.query(`UPDATE ${table} SET status = 'archived', admin_archived_at = NOW(), updated_at = NOW()
-    WHERE id = $1 AND company_id = $2 AND status = 'active' RETURNING id, company_id, status`, [productId, companyId]);
-  if (!product) return errorResponse('Active product not found.', 404);
+    WHERE id = $1 AND company_id = $2 AND status IN ('pending', 'active', 'rejected') RETURNING id, company_id, status`, [productId, companyId]);
+  if (!product) return errorResponse('Product not found or already archived.', 404);
   await writeAudit(db, c, c.get('adminUser').id, 'product.archive', 'product', productId, { companyId });
-  return jsonResponse(ok(product, 'Product removed from listing.'));
+  return jsonResponse(ok(product, 'Product archived.'));
 });
 
 export default products;

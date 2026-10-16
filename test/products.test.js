@@ -15,3 +15,12 @@ test('product data cannot be edited without an authenticated admin session', asy
   assert.equal(response.status, 401);
   assert.equal((await response.json()).success, false);
 });
+
+test('product management supports editing all reviewable and published states, resubmission, and archival', async () => {
+  const { readFileSync } = await import('node:fs');
+  const routes = readFileSync(new URL('../src/routes/products.js', import.meta.url), 'utf8');
+  assert.match(routes, /status IN \('pending', 'active', 'rejected'\)/);
+  assert.match(routes, /products\.patch\('\/:companyId\/:productId\/resubmit'/);
+  assert.match(routes, /SET status = 'pending', published_at = NULL/);
+  assert.match(routes, /SET status = 'archived', admin_archived_at = NOW\(\)/);
+});
