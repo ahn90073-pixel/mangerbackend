@@ -17,6 +17,8 @@ function validateCampaign(body) {
   if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 120) errors.push('عنوان الإشعار مطلوب وبحد أقصى 120 حرفًا.');
   if (typeof body.body !== 'string' || !body.body.trim() || body.body.length > 500) errors.push('نص الإشعار مطلوب وبحد أقصى 500 حرف.');
   if (body.companyId !== undefined && body.companyId !== null && !isUuid(body.companyId)) errors.push('معرّف المتجر غير صالح.');
+  if (body.targetTokenRef !== undefined && body.targetTokenRef !== null && (typeof body.targetTokenRef !== 'string' || !/^[a-f0-9]{32}$/i.test(body.targetTokenRef))) errors.push('مرجع جهاز العميل غير صالح.');
+  if (body.targetTokenRef && body.audience !== 'customer') errors.push('اختيار عميل محدد متاح لإشعارات الجمهور فقط.');
   if (body.imageData !== undefined && body.imageData !== null && (typeof body.imageData !== 'string' || body.imageData.length > 2_100_000)) errors.push('صورة الإشعار غير صالحة أو حجمها أكبر من 1.5 ميجابايت.');
   return errors;
 }
@@ -133,6 +135,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
      SELECT company_id, audience, whatsapp_phone, platform, app_version, last_seen_at,
        location_city, location_region, location_country,
        CASE WHEN fcm_token IS NOT NULL AND fcm_token <> '' THEN CONCAT(LEFT(fcm_token, 8), '…', RIGHT(fcm_token, 6)) ELSE NULL END AS token_hint,
+       CASE WHEN fcm_token IS NOT NULL AND fcm_token <> '' THEN MD5(fcm_token) ELSE NULL END AS token_ref,
        (fcm_token IS NOT NULL AND fcm_token <> '') AS has_push_token,
        COALESCE(push_enabled, FALSE) AS push_enabled,
        contact_name, store_name,
@@ -158,6 +161,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
       locationRegion: row.location_region || null,
       locationCountry: row.location_country || null,
       tokenHint: row.token_hint || '—',
+      tokenRef: row.token_ref || null,
       hasPushToken: Boolean(row.has_push_token),
       pushEnabled: Boolean(row.push_enabled),
     })),
@@ -171,7 +175,7 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
   const errors = validateCampaign(parsed.body);
   if (errors.length) return errorResponse('يرجى مراجعة بيانات الحملة.', 400, errors);
 
-  const { audience, title, body, companyId = null, imageData = null, imageName = 'notification-image' } = parsed.body;
+  const { audience, title, body, companyId = null, targetTokenRef = null, imageData = null, imageName = 'notification-image' } = parsed.body;
   const appName = audience === 'customer' ? 'online-store' : 'taget';
   if (!isFcmConfigured(c.env, appName)) {
     const secretName = audience === 'customer' ? 'FCM_PUBLIC_SERVICE_ACCOUNT_JSON' : 'FCM_SERVICE_ACCOUNT_JSON';
@@ -196,6 +200,7 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
          AND push_enabled IS TRUE
          AND fcm_token IS NOT NULL AND fcm_token <> ''
          AND ($3::uuid IS NULL OR company_id = $3::uuid)
+         AND ($4::text IS NULL OR MD5(fcm_token) = $4::text)
        UNION
        SELECT d.token AS fcm_token
        FROM app.device_tokens d
@@ -204,12 +209,13 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
          AND d.company_id IS NULL
          AND d.enabled IS TRUE
          AND d.token IS NOT NULL AND d.token <> ''
-         AND $3::uuid IS NULL
+         AND ($3::uuid IS NULL OR d.company_id = $3::uuid)
+         AND ($4::text IS NULL OR MD5(d.token) = $4::text)
      )
      SELECT DISTINCT fcm_token FROM candidates
      WHERE fcm_token IS NOT NULL AND fcm_token <> ''
      LIMIT ${MAX_TOKENS_PER_SEND}`,
-    [audience, appName, companyId],
+    [audience, appName, companyId, targetTokenRef],
   );
   const tokens = rows.map((row) => row.fcm_token).filter(Boolean);
   const result = await sendFcmNotification(c.env, tokens, { title: title.trim(), body: body.trim(), imageUrl, appName });
