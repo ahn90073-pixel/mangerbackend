@@ -53,8 +53,20 @@ notifications.get('/status', ...superAdminGuard, async (c) => {
      SELECT audience, SUM(total)::int AS total, SUM(opted_in)::int AS opted_in,
        SUM(with_token)::int AS with_token, SUM(ready_to_send)::int AS ready_to_send
      FROM source_counts
-     GROUP BY audience
-     ORDER BY audience`,
+      GROUP BY audience
+      ORDER BY audience`,
+  );
+  const cityRows = await db.query(
+    `SELECT COALESCE(NULLIF(BTRIM(location_city), ''), 'غير محددة') AS city,
+       COALESCE(NULLIF(BTRIM(location_region), ''), '') AS region,
+       COALESCE(NULLIF(BTRIM(location_country), ''), '') AS country,
+       COUNT(*)::int AS tokens
+     FROM app.device_tokens
+     WHERE company_id IS NULL AND enabled IS TRUE
+       AND token IS NOT NULL AND token <> ''
+     GROUP BY 1, 2, 3
+     ORDER BY tokens DESC, city ASC, region ASC
+     LIMIT 8`,
   );
   const byAudience = { merchant: { total: 0, optedIn: 0, withToken: 0, readyToSend: 0 }, customer: { total: 0, optedIn: 0, withToken: 0, readyToSend: 0 } };
   for (const row of rows) {
@@ -71,6 +83,12 @@ notifications.get('/status', ...superAdminGuard, async (c) => {
       customer: isFcmConfigured(c.env, 'online-store'),
     },
     audiences: byAudience,
+    customerCities: cityRows.map((row) => ({
+      city: row.city,
+      region: row.region,
+      country: row.country,
+      tokens: Number(row.tokens || 0),
+    })),
   }));
 });
 

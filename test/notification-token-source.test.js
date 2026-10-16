@@ -16,6 +16,16 @@ test('notification status and contacts include audience device tokens from the p
   assert.match(routes, /companyName: row\.store_name/);
 });
 
+test('notification status summarizes enabled customer tokens by approximate city without returning token values', () => {
+  const statusRoute = routes.slice(routes.indexOf("notifications.get('/status'"), routes.indexOf("notifications.get('/contacts'"));
+  assert.match(statusRoute, /COALESCE\(NULLIF\(BTRIM\(location_city\)/);
+  assert.match(statusRoute, /FROM app\.device_tokens/);
+  assert.match(statusRoute, /company_id IS NULL AND enabled IS TRUE/);
+  assert.match(statusRoute, /customerCities: cityRows\.map/);
+  assert.match(statusRoute, /tokens: Number\(row\.tokens/);
+  assert.doesNotMatch(statusRoute, /SELECT\s+fcm_token\s+FROM app\.device_tokens/);
+});
+
 test('legacy and public backend customer contacts are deduplicated by FCM token', () => {
   assert.match(routes, /NOT EXISTS \([\s\S]*FROM app\.device_tokens d WHERE d\.company_id IS NULL AND d\.token = n\.fcm_token/);
 });

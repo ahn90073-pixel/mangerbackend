@@ -194,12 +194,14 @@ async function loadOrderDetails(db, vendorId, orderId, governorates = null) {
 
 orders.get('/', ...adminGuard, async (c) => {
   const status = c.req.query('status') || 'all';
+  const shipmentStatus = c.req.query('shipmentStatus') || 'all';
   if (status !== 'all' && !orderStatuses.has(status)) return errorResponse('Unsupported order status.', 400);
+  if (shipmentStatus !== 'all' && !shipmentStatuses.has(shipmentStatus)) return errorResponse('Unsupported shipment status.', 400);
   const companyId = c.req.query('vendorId') || null;
   if (companyId && !isUuid(companyId)) return errorResponse('vendorId must be a UUID.', 400);
   const { page, limit, offset } = pagination(c, 20, 100);
   const data = await listAdminOrders(createDb(c.env), {
-    page, limit, offset, status, companyId, q: searchTerm(c.req.query('q')),
+    page, limit, offset, status, shipmentStatus, companyId, q: searchTerm(c.req.query('q')),
     governorates: assignedGovernorates(c.get('adminUser')),
   });
   return jsonResponse(ok(data));
