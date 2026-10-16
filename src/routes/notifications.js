@@ -134,7 +134,6 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
      )
      SELECT company_id, audience, whatsapp_phone, platform, app_version, last_seen_at,
        location_city, location_region, location_country,
-       CASE WHEN fcm_token IS NOT NULL AND fcm_token <> '' THEN CONCAT(LEFT(fcm_token, 8), '…', RIGHT(fcm_token, 6)) ELSE NULL END AS token_hint,
        CASE WHEN fcm_token IS NOT NULL AND fcm_token <> '' THEN MD5(fcm_token) ELSE NULL END AS token_ref,
        (fcm_token IS NOT NULL AND fcm_token <> '') AS has_push_token,
        COALESCE(push_enabled, FALSE) AS push_enabled,
@@ -160,7 +159,6 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
       locationCity: row.location_city || null,
       locationRegion: row.location_region || null,
       locationCountry: row.location_country || null,
-      tokenHint: row.token_hint || '—',
       tokenRef: row.token_ref || null,
       hasPushToken: Boolean(row.has_push_token),
       pushEnabled: Boolean(row.push_enabled),
