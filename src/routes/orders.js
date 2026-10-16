@@ -313,6 +313,8 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
         ))
       FROM changed current_order
       LEFT JOIN ${addressTable} address ON address.id = current_order.address_id
+      WHERE ($5::text IS NOT NULL AND ($5::text <> 'pending' OR current_order.previous_shipment_status IS NOT NULL))
+        OR $6::boolean IS TRUE OR $7::boolean IS TRUE
       ON CONFLICT (order_id) DO UPDATE SET
         carrier = CASE WHEN $6::boolean THEN EXCLUDED.carrier ELSE current_shipment.carrier END,
         tracking_number = CASE WHEN $7::boolean THEN EXCLUDED.tracking_number ELSE current_shipment.tracking_number END,
@@ -344,6 +346,14 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
   ];
   const [updated] = await db.query(updateSql, params);
   if (!updated) return errorResponse('تعذر تطبيق تحديث الحالة؛ ربما تغيرت حالة الطلب بالتزامن. أعد تحميل الطلب.', 409);
+  if (shipmentStatus === 'ready') {
+    await db.query(
+      `UPDATE public.shipment_activation_requests
+       SET status = 'processed', processed_at = COALESCE(processed_at, NOW())
+       WHERE company_id = $1::uuid AND order_id = $2::uuid AND status = 'pending'`,
+      [vendorId, orderId],
+    );
+  }
   const data = await loadOrderDetails(db, vendorId, orderId, governorates);
   let notification = { status: 'not_requested', total: 0, sent: 0, failed: 0 };
   if (shipmentStatus !== updated.previous_shipment_status && shipmentNotificationCopy[shipmentStatus]) {

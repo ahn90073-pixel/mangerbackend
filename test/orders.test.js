@@ -45,3 +45,12 @@ test('admin shipment notifications include active public device tokens and retur
   assert.match(notifier, /d\.enabled IS TRUE/);
   assert.match(orderRoutes, /ok\(\{ \.\.\.data, notification \}/);
 });
+
+test('admin shipment preparation marks a pending merchant activation request processed', () => {
+  assert.match(orderRoutes, /shipmentStatus === 'ready'/);
+  assert.match(orderRoutes, /UPDATE public\.shipment_activation_requests[\s\S]*status = 'processed'/);
+});
+
+test('admin order-only edits do not create a shipment before explicit activation', () => {
+  assert.match(orderRoutes, /WHERE \(\$5::text IS NOT NULL AND \(\$5::text <> 'pending' OR current_order\.previous_shipment_status IS NOT NULL\)\)/);
+});

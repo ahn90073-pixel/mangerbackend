@@ -43,3 +43,9 @@ test('notification contacts return only a shortened token hint', () => {
   assert.match(contactsRoute, /LEFT\(fcm_token, 8\).*RIGHT\(fcm_token, 6\)/s);
   assert.doesNotMatch(contactsRoute, /items:\s*rows\s*\}\)/);
 });
+
+test('admin notifications expose merchant shipment activation requests without customer token data', () => {
+  assert.match(routes, /notifications\.get\('\/shipment-requests'/);
+  assert.match(routes, /FROM public\.shipment_activation_requests r/);
+  assert.match(routes, /companyName: row\.company_name \|\| row\.legal_name/);
+});
