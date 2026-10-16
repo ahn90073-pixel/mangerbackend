@@ -8,6 +8,7 @@ export async function listAdminOrders(db, options = {}) {
     offset = (page - 1) * limit,
     q = '',
     status = '',
+    shipmentStatus = 'all',
     companyId = null,
     governorates = null,
   } = options;
@@ -25,14 +26,20 @@ export async function listAdminOrders(db, options = {}) {
     const p = `$${index + 1}`;
     const orders = tenantTable(tenant.tenant_schema_name, 'orders');
     const customers = tenantTable(tenant.tenant_schema_name, 'customers');
+    const addresses = tenantTable(tenant.tenant_schema_name, 'addresses');
+    const shipments = tenantTable(tenant.tenant_schema_name, 'shipments');
     return `SELECT o.id, o.order_number, o.company_id, c.display_name AS vendor_name,
       c.governorate AS vendor_governorate,
       COALESCE(cu.full_name, cu.email, cu.phone, 'زائر') AS customer_name,
+      COALESCE(NULLIF(a.phone, ''), cu.phone, '') AS customer_phone,
       o.grand_total::numeric AS amount, o.currency::text AS currency, o.status,
+      s.status AS shipment_status, s.carrier, s.tracking_number,
       o.payment_status, COALESCE(o.placed_at, o.created_at) AS ordered_at
       FROM ${orders} o
       JOIN public.companies c ON c.id = o.company_id
       LEFT JOIN ${customers} cu ON cu.id = o.customer_id
+      LEFT JOIN ${addresses} a ON a.id = o.address_id
+      LEFT JOIN ${shipments} s ON s.order_id = o.id
       WHERE o.company_id = ${p}::uuid${governorateFilter}`;
   });
 
@@ -40,6 +47,10 @@ export async function listAdminOrders(db, options = {}) {
   if (status && status !== 'all') {
     values.push(status);
     filters.push(`orders.status = $${values.length}`);
+  }
+  if (shipmentStatus && shipmentStatus !== 'all') {
+    values.push(shipmentStatus);
+    filters.push(`orders.shipment_status = $${values.length}`);
   }
   if (q) {
     values.push(`%${q}%`);
@@ -70,6 +81,10 @@ export async function listAdminOrders(db, options = {}) {
     currency: row.currency?.trim() || 'EGP',
     status: row.status,
     paymentStatus: row.payment_status,
+    customerPhone: row.customer_phone || '',
+    shipmentStatus: row.shipment_status || 'pending',
+    carrier: row.carrier || '',
+    trackingNumber: row.tracking_number || '',
     date: row.ordered_at,
   }));
   return paginated(items, total, page, limit);
