@@ -85,7 +85,8 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
   const rows = await db.query(
     `WITH contacts AS (
        SELECT n.company_id, n.audience, n.whatsapp_phone, n.platform, n.app_version, n.last_seen_at,
-         n.location_city, n.location_region, n.location_country, n.fcm_token, n.push_enabled,
+         NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country,
+         n.fcm_token, n.push_enabled,
          u.full_name AS contact_name, c.display_name AS store_name
        FROM public.notification_contacts n
        LEFT JOIN public.companies c ON c.id = n.company_id

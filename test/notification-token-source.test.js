@@ -9,6 +9,8 @@ test('notification status and contacts include audience device tokens from the p
   assert.match(routes, /d\.company_id IS NULL/);
   assert.match(routes, /d\.location_city, d\.location_region, d\.location_country/);
   assert.match(routes, /d\.token AS fcm_token/);
+  assert.match(routes, /NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country/);
+  assert.doesNotMatch(routes, /n\.location_(city|region|country)/);
 });
 
 test('legacy and public backend customer contacts are deduplicated by FCM token', () => {
