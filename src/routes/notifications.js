@@ -29,13 +29,30 @@ function safeAudit(db, c, action, details) {
 notifications.get('/status', ...superAdminGuard, async (c) => {
   const db = createDb(c.env);
   const rows = await db.query(
-    `SELECT audience,
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (WHERE push_enabled IS TRUE)::int AS opted_in,
-      COUNT(*) FILTER (WHERE fcm_token IS NOT NULL AND fcm_token <> '')::int AS with_token,
-      COUNT(*) FILTER (WHERE push_enabled IS TRUE AND fcm_token IS NOT NULL AND fcm_token <> '')::int AS ready_to_send
-     FROM public.notification_contacts
-     WHERE audience IN ('merchant', 'customer')
+    `WITH source_counts AS (
+       SELECT n.audience,
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE n.push_enabled IS TRUE)::int AS opted_in,
+         COUNT(*) FILTER (WHERE n.fcm_token IS NOT NULL AND n.fcm_token <> '')::int AS with_token,
+         COUNT(*) FILTER (WHERE n.push_enabled IS TRUE AND n.fcm_token IS NOT NULL AND n.fcm_token <> '')::int AS ready_to_send
+       FROM public.notification_contacts n
+       WHERE n.audience IN ('merchant', 'customer')
+         AND (n.audience <> 'customer' OR n.fcm_token IS NULL OR NOT EXISTS (
+           SELECT 1 FROM app.device_tokens d WHERE d.company_id IS NULL AND d.token = n.fcm_token
+         ))
+       GROUP BY n.audience
+       UNION ALL
+       SELECT 'customer'::text AS audience,
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE enabled IS TRUE)::int AS opted_in,
+         COUNT(*) FILTER (WHERE token IS NOT NULL AND token <> '')::int AS with_token,
+         COUNT(*) FILTER (WHERE enabled IS TRUE AND token IS NOT NULL AND token <> '')::int AS ready_to_send
+       FROM app.device_tokens
+       WHERE company_id IS NULL
+     )
+     SELECT audience, SUM(total)::int AS total, SUM(opted_in)::int AS opted_in,
+       SUM(with_token)::int AS with_token, SUM(ready_to_send)::int AS ready_to_send
+     FROM source_counts
      GROUP BY audience
      ORDER BY audience`,
   );
@@ -66,20 +83,40 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
   const { page, limit, offset } = pagination(c, 50, 100);
   const values = [audience, companyId, limit, offset];
   const rows = await db.query(
-    `SELECT n.company_id, n.audience, n.whatsapp_phone, n.platform, n.app_version, n.last_seen_at,
-      n.location_city, n.location_region, n.location_country,
-      CASE WHEN n.fcm_token IS NOT NULL AND n.fcm_token <> '' THEN CONCAT(LEFT(n.fcm_token, 8), '…', RIGHT(n.fcm_token, 6)) ELSE NULL END AS token_hint,
-      (n.fcm_token IS NOT NULL AND n.fcm_token <> '') AS has_push_token,
-      COALESCE(n.push_enabled, FALSE) AS push_enabled,
-      u.full_name AS contact_name,
-      c.display_name AS store_name,
+    `WITH contacts AS (
+       SELECT n.company_id, n.audience, n.whatsapp_phone, n.platform, n.app_version, n.last_seen_at,
+         n.location_city, n.location_region, n.location_country, n.fcm_token, n.push_enabled,
+         u.full_name AS contact_name, c.display_name AS store_name
+       FROM public.notification_contacts n
+       LEFT JOIN public.companies c ON c.id = n.company_id
+       LEFT JOIN public.users u ON u.id = n.user_id
+       WHERE ($1::text IS NULL OR n.audience = $1::text)
+         AND ($2::uuid IS NULL OR n.company_id = $2::uuid)
+         AND (n.audience <> 'customer' OR n.fcm_token IS NULL OR NOT EXISTS (
+           SELECT 1 FROM app.device_tokens d WHERE d.company_id IS NULL AND d.token = n.fcm_token
+         ))
+       UNION ALL
+       SELECT d.company_id, 'customer'::text AS audience,
+         COALESCE(customer.phone, u.phone) AS whatsapp_phone, d.platform, d.app_version, d.last_seen_at,
+         d.location_city, d.location_region, d.location_country, d.token AS fcm_token, d.enabled AS push_enabled,
+         COALESCE(u.full_name, customer.full_name) AS contact_name, c.display_name AS store_name
+       FROM app.device_tokens d
+       LEFT JOIN app.customers customer ON customer.id = d.customer_id
+       LEFT JOIN app.users u ON u.id = d.user_id
+       LEFT JOIN app.companies c ON c.id = d.company_id
+       WHERE d.company_id IS NULL
+         AND ($1::text IS NULL OR $1::text = 'customer')
+         AND ($2::uuid IS NULL OR d.company_id = $2::uuid)
+     )
+     SELECT company_id, audience, whatsapp_phone, platform, app_version, last_seen_at,
+       location_city, location_region, location_country,
+       CASE WHEN fcm_token IS NOT NULL AND fcm_token <> '' THEN CONCAT(LEFT(fcm_token, 8), '…', RIGHT(fcm_token, 6)) ELSE NULL END AS token_hint,
+       (fcm_token IS NOT NULL AND fcm_token <> '') AS has_push_token,
+       COALESCE(push_enabled, FALSE) AS push_enabled,
+       contact_name, store_name,
       COUNT(*) OVER()::int AS _total
-     FROM public.notification_contacts n
-     LEFT JOIN public.companies c ON c.id = n.company_id
-     LEFT JOIN public.users u ON u.id = n.user_id
-     WHERE ($1::text IS NULL OR n.audience = $1::text)
-       AND ($2::uuid IS NULL OR n.company_id = $2::uuid)
-     ORDER BY c.display_name NULLS LAST, n.audience, n.whatsapp_phone
+     FROM contacts
+     ORDER BY store_name NULLS LAST, audience, whatsapp_phone, contact_name
      LIMIT $3 OFFSET $4`,
     values,
   );
@@ -128,13 +165,26 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
   }
   const db = createDb(c.env);
   const rows = await db.query(
-    `SELECT DISTINCT fcm_token
-     FROM public.notification_contacts
-     WHERE audience = $1::text
-       AND app_name = $2::text
-       AND push_enabled IS TRUE
-       AND fcm_token IS NOT NULL AND fcm_token <> ''
-       AND ($3::uuid IS NULL OR company_id = $3::uuid)
+    `WITH candidates AS (
+       SELECT fcm_token
+       FROM public.notification_contacts
+       WHERE audience = $1::text
+         AND app_name = $2::text
+         AND push_enabled IS TRUE
+         AND fcm_token IS NOT NULL AND fcm_token <> ''
+         AND ($3::uuid IS NULL OR company_id = $3::uuid)
+       UNION
+       SELECT d.token AS fcm_token
+       FROM app.device_tokens d
+       WHERE $1::text = 'customer'
+         AND $2::text = 'online-store'
+         AND d.company_id IS NULL
+         AND d.enabled IS TRUE
+         AND d.token IS NOT NULL AND d.token <> ''
+         AND $3::uuid IS NULL
+     )
+     SELECT DISTINCT fcm_token FROM candidates
+     WHERE fcm_token IS NOT NULL AND fcm_token <> ''
      LIMIT ${MAX_TOKENS_PER_SEND}`,
     [audience, appName, companyId],
   );
