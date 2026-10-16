@@ -52,16 +52,31 @@ async function notifyCustomerShipment(env, db, orderNumber, shipmentStatus, cust
   const copy = shipmentNotificationCopy[shipmentStatus];
   if (!copy) return { status: 'not_requested', total: 0, sent: 0, failed: 0 };
   const rows = await db.query(
-    `SELECT fcm_token
-     FROM public.notification_contacts
-     WHERE audience = 'customer' AND app_name = 'online-store'
-       AND push_enabled IS TRUE
-       AND fcm_token IS NOT NULL AND fcm_token <> ''
-       AND RIGHT(regexp_replace(COALESCE(whatsapp_phone, ''), '[^0-9]', '', 'g'), 10) =
-           RIGHT(regexp_replace($1::text, '[^0-9]', '', 'g'), 10)
+    `WITH candidates AS (
+       SELECT n.fcm_token
+       FROM public.notification_contacts n
+       WHERE n.audience = 'customer' AND n.app_name = 'online-store'
+         AND n.push_enabled IS TRUE
+         AND n.fcm_token IS NOT NULL AND n.fcm_token <> ''
+         AND RIGHT(regexp_replace(COALESCE(n.whatsapp_phone, ''), '[^0-9]', '', 'g'), 10) =
+             RIGHT(regexp_replace($1::text, '[^0-9]', '', 'g'), 10)
+       UNION
+       SELECT d.token AS fcm_token
+       FROM app.device_tokens d
+       LEFT JOIN app.customers customer ON customer.id = d.customer_id
+       LEFT JOIN app.users u ON u.id = d.user_id
+       WHERE d.company_id IS NULL
+         AND d.enabled IS TRUE
+         AND d.token IS NOT NULL AND d.token <> ''
+         AND RIGHT(regexp_replace(COALESCE(NULLIF(customer.phone, ''), NULLIF(u.phone, ''), ''), '[^0-9]', '', 'g'), 10) =
+             RIGHT(regexp_replace($1::text, '[^0-9]', '', 'g'), 10)
+     )
+     SELECT DISTINCT fcm_token FROM candidates
+     WHERE fcm_token IS NOT NULL AND fcm_token <> ''
      LIMIT 500`,
     [customerPhone],
   );
+  if (!rows.length) return { status: 'no_tokens', total: 0, sent: 0, failed: 0 };
   const result = await sendFcmNotification(env, rows.map((row) => row.fcm_token), {
     title: copy[0],
     body: copy[1](orderNumber),
@@ -350,7 +365,7 @@ orders.patch('/:vendorId/:orderId', ...adminGuard, async (c) => {
     restockedProducts: updated.restocked_products,
     notification,
   });
-  return jsonResponse(ok(data, 'تم تحديث الطلب وبيانات الشحن.'));
+  return jsonResponse(ok({ ...data, notification }, 'تم تحديث الطلب وبيانات الشحن.'));
 });
 
 export default orders;
