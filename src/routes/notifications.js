@@ -85,9 +85,12 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
   const rows = await db.query(
     `WITH contacts AS (
        SELECT n.company_id, n.audience, n.whatsapp_phone, n.platform, n.app_version, n.last_seen_at,
-         NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country,
+         CASE WHEN n.audience = 'merchant' THEN n.location_city ELSE NULL::text END AS location_city,
+         CASE WHEN n.audience = 'merchant' THEN n.location_region ELSE NULL::text END AS location_region,
+         CASE WHEN n.audience = 'merchant' THEN n.location_country ELSE NULL::text END AS location_country,
          n.fcm_token, n.push_enabled,
-         u.full_name AS contact_name, c.display_name AS store_name
+         u.full_name AS contact_name,
+         COALESCE(NULLIF(n.company_name, ''), NULLIF(c.display_name, ''), c.legal_name) AS store_name
        FROM public.notification_contacts n
        LEFT JOIN public.companies c ON c.id = n.company_id
        LEFT JOIN public.users u ON u.id = n.user_id
@@ -125,6 +128,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
   return jsonResponse(ok({
     items: rows.map((row) => ({
       name: row.contact_name || (row.audience === 'customer' ? 'عميل' : 'تاجر'),
+      companyName: row.store_name || '—',
       storeName: row.store_name || '—',
       audience: row.audience,
       companyId: row.company_id,

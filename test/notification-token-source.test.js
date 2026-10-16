@@ -9,8 +9,11 @@ test('notification status and contacts include audience device tokens from the p
   assert.match(routes, /d\.company_id IS NULL/);
   assert.match(routes, /d\.location_city, d\.location_region, d\.location_country/);
   assert.match(routes, /d\.token AS fcm_token/);
-  assert.match(routes, /NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country/);
-  assert.doesNotMatch(routes, /n\.location_(city|region|country)/);
+  assert.match(routes, /CASE WHEN n\.audience = 'merchant' THEN n\.location_city ELSE NULL::text END AS location_city/);
+  assert.match(routes, /CASE WHEN n\.audience = 'merchant' THEN n\.location_region ELSE NULL::text END AS location_region/);
+  assert.match(routes, /CASE WHEN n\.audience = 'merchant' THEN n\.location_country ELSE NULL::text END AS location_country/);
+  assert.match(routes, /COALESCE\(NULLIF\(n\.company_name, ''\), NULLIF\(c\.display_name, ''\), c\.legal_name\) AS store_name/);
+  assert.match(routes, /companyName: row\.store_name/);
 });
 
 test('legacy and public backend customer contacts are deduplicated by FCM token', () => {
