@@ -49,3 +49,14 @@ test('admin notifications expose merchant shipment activation requests without c
   assert.match(routes, /FROM public\.shipment_activation_requests r/);
   assert.match(routes, /companyName: row\.company_name \|\| row\.legal_name/);
 });
+
+test('customer directory lists customer city and WhatsApp only, deduplicated by customer identity', () => {
+  const directoryRoute = routes.slice(routes.indexOf("notifications.get('/customer-directory'"), routes.indexOf("notifications.get('/contacts'"));
+  assert.match(directoryRoute, /FROM app\.device_tokens d/);
+  assert.match(directoryRoute, /d\.company_id IS NULL/);
+  assert.match(directoryRoute, /DISTINCT ON \(COALESCE\(d\.customer_id::text, d\.user_id::text, d\.token\)\)/);
+  assert.match(directoryRoute, /COALESCE\(NULLIF\(BTRIM\(customer\.phone\), ''\), NULLIF\(BTRIM\(u\.phone\), ''\)\) AS whatsapp_phone/);
+  assert.match(directoryRoute, /city: row\.location_city/);
+  assert.match(directoryRoute, /whatsappPhone: row\.whatsapp_phone/);
+  assert.doesNotMatch(directoryRoute, /tokenHint|fcm_token|contactName|fullName|locationRegion|locationCountry/);
+});
