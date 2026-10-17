@@ -59,12 +59,36 @@ vendors.patch('/:id/status', ...superAdminGuard, async (c) => {
   const db = createDb(c.env);
   const user = c.get('adminUser');
   const governorates = assignedGovernorates(user);
-  const rows = governorates === null
-    ? await db.query('UPDATE public.companies SET status = $2, updated_at = NOW() WHERE id = $1::uuid RETURNING id, status', [companyId, status])
-    : await db.query('UPDATE public.companies SET status = $2, updated_at = NOW() WHERE id = $1::uuid AND governorate = ANY($3::text[]) RETURNING id, status', [companyId, status, governorates]);
-  if (!rows.length) return errorResponse('Vendor not found.', 404);
-  await writeAudit(db, c, user.id, 'vendor.status.update', 'company', companyId, { status });
-  return jsonResponse(ok(rows[0], 'Vendor status updated.'));
+  const [updated] = await db.query(
+    `WITH updated_company AS (
+       UPDATE public.companies
+       SET status = $2, updated_at = NOW()
+       WHERE id = $1::uuid AND ($3::text[] IS NULL OR governorate = ANY($3::text[]))
+       RETURNING id, status
+     ), revoked_sessions AS (
+       UPDATE public.auth_refresh_sessions AS s
+       SET revoked_at = NOW(), last_used_at = NOW()
+       WHERE $2::text = 'suspended'
+         AND s.revoked_at IS NULL
+         AND s.user_id IN (
+           SELECT cm.user_id
+           FROM public.company_members cm
+           JOIN updated_company company ON company.id = cm.company_id
+           WHERE cm.is_active = TRUE
+         )
+       RETURNING s.user_id
+     )
+     SELECT company.id, company.status,
+       (SELECT COUNT(*)::int FROM revoked_sessions) AS revoked_refresh_sessions
+     FROM updated_company company`,
+    [companyId, status, governorates],
+  );
+  if (!updated) return errorResponse('Vendor not found.', 404);
+  await writeAudit(db, c, user.id, 'vendor.status.update', 'company', companyId, {
+    status,
+    revokedRefreshSessions: Number(updated.revoked_refresh_sessions || 0),
+  });
+  return jsonResponse(ok(updated, 'Vendor status updated.'));
 });
 
 vendors.patch('/:id/governorate', ...superAdminGuard, async (c) => {
