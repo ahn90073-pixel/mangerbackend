@@ -17,6 +17,7 @@ async function loadCompanyRows(db, companyId = null, governorates = null) {
   return db.query(
     `SELECT c.id, c.slug, c.tenant_schema_name, c.legal_name, c.display_name, c.email,
       c.status, c.governorate, c.created_at,
+      c.shipping_location_latitude, c.shipping_location_longitude, c.shipping_location_consent_at,
       owner.full_name AS merchant_name,
       COALESCE(c.email, owner.email) AS contact_email,
       owner.phone AS contact_phone,
@@ -82,6 +83,7 @@ export async function getVendorSummaries(db, companyId = null, governorates = nu
       phone: row.contact_phone || '',
       city: row.governorate || null,
       governorate: row.governorate || null,
+      shippingLocation: row.shipping_location_latitude != null && row.shipping_location_longitude != null ? { latitude: Number(row.shipping_location_latitude), longitude: Number(row.shipping_location_longitude), sharedAt: row.shipping_location_consent_at || null } : null,
       status: row.status || 'active',
       logo: initials(row.display_name),
       totalSales: roundMoney(totalSales),
