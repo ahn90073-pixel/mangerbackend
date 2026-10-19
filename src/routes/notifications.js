@@ -216,7 +216,7 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
   const rows = await db.query(
     `WITH candidates AS (
        SELECT fcm_token
-       FROM public.notification_contacts
+       FROM public.notification_contacts n
        WHERE audience = $1::text
          AND app_name = $2::text
          AND push_enabled IS TRUE

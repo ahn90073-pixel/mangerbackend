@@ -42,6 +42,7 @@ test('customer campaigns send to enabled public app device tokens and preserve l
 
 test('customer campaign filtering uses a parameterized governorate for both token sources', () => {
   const sendRoute = routes.slice(routes.indexOf("notifications.post('/send'"));
+  assert.match(sendRoute, /FROM public\.notification_contacts n/);
   assert.match(sendRoute, /\$5::text IS NULL OR n\.governorate = \$5::text/);
   assert.match(sendRoute, /\$5::text IS NULL OR d\.governorate = \$5::text/);
   assert.match(sendRoute, /companyId, targetTokenRef, governorate/);
