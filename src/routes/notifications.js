@@ -3,7 +3,8 @@ import { createDb } from '../lib/db.js';
 import { errorResponse, jsonResponse, ok } from '../lib/response.js';
 import { superAdminGuard } from '../middleware/adminAuth.js';
 import { isUuid, pagination, readJson } from '../lib/validation.js';
-import { isFcmConfigured, sendFcmNotification, uploadFirebaseNotificationImage } from '../lib/fcm.js';
+import { isFcmConfigured, sendFcmNotification } from '../lib/fcm.js';
+import { storeNotificationImage } from '../lib/notificationImages.js';
 import { writeAudit } from '../lib/audit.js';
 
 const notifications = new Hono();
@@ -182,21 +183,15 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
   let imageUrl = null;
   if (imageData) {
     try {
-      imageUrl = await uploadFirebaseNotificationImage(c.env, imageData, imageName, appName);
-      if (!imageUrl) return errorResponse('تعذر تجهيز صورة الإشعار؛ استخدم PNG أو JPG أو WEBP بحجم أقل من 1.5 ميجابايت.', 400);
+      imageUrl = await storeNotificationImage(c.env, imageData, imageName, new URL(c.req.url).origin);
+      if (!imageUrl) return errorResponse('تعذر تجهيز الصورة؛ استخدم PNG أو JPG أو WEBP بحجم أقل من 1.5 ميجابايت.', 400);
     } catch (error) {
       const reason = String(error?.message || '');
-      if (reason === 'FIREBASE_STORAGE_BUCKET_NOT_FOUND') {
-        return errorResponse('تخزين صور Firebase غير مفعّل لهذا التطبيق بعد. أنشئ bucket في Firebase Storage ثم أعد المحاولة.', 503);
+      if (reason === 'NOTIFICATION_IMAGE_KV_NOT_CONFIGURED') {
+        return errorResponse('مخزن صور Cloudflare KV غير مربوط بالخادم بعد. لم يتم إرسال الحملة.', 503);
       }
-      if (reason === 'FIREBASE_STORAGE_PERMISSION_DENIED') {
-        return errorResponse('حساب خدمة Firebase لا يملك صلاحية رفع الملفات. امنحه دور Storage Object Admin على bucket ثم أعد المحاولة.', 503);
-      }
-      if (reason === 'FIREBASE_STORAGE_AUTH_FAILED') {
-        return errorResponse('تعذر توثيق حساب خدمة Firebase لرفع الصورة. راجع إعداد FCM_SERVICE_ACCOUNT_JSON.', 503);
-      }
-      console.error('[notifications] Firebase Storage upload failed:', reason || 'unknown error');
-      return errorResponse('تعذر رفع صورة الإشعار إلى Firebase Storage. تحقق من تفعيل التخزين وصلاحية حساب الخدمة.', 502);
+      console.error('[notifications] Cloudflare KV image upload failed:', reason || 'unknown error');
+      return errorResponse('تعذر رفع الصورة إلى Cloudflare KV. لم يتم إرسال الحملة.', 502);
     }
   }
   const db = createDb(c.env);

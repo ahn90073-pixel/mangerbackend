@@ -14,6 +14,7 @@ import orderRoutes from './routes/orders.js';
 import auditLogRoutes from './routes/auditLogs.js';
 import storeRequestRoutes from './routes/storeRequests.js';
 import notificationRoutes from './routes/notifications.js';
+import { getNotificationImage } from './lib/notificationImages.js';
 
 const app = new Hono();
 
@@ -27,6 +28,10 @@ app.use('*', cors({
 }));
 
 app.get('/health', (c) => c.json({ success: true, service: 'mange-admin-backend', status: 'healthy' }));
+app.get('/api/public/notification-images/:id/:token', async (c) => {
+  const response = await getNotificationImage(c.env, c.req.param('id'), c.req.param('token'));
+  return response || c.body(null, 404, { 'Cache-Control': 'no-store' });
+});
 app.get('/api/admin', ...superAdminGuard, (c) => c.json({
   success: true,
   service: 'mange-admin-backend',

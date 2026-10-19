@@ -79,13 +79,54 @@ jobs:
           psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0002_admin_auth_governorates.sql
           psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -f migrations/0003_firebase_google_admin_auth.sql
 
+      - name: Ensure notification image KV namespace and deployment config
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+
+          account_id = os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token = os.environ['CLOUDFLARE_API_TOKEN']
+          base = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/storage/kv/namespaces'
+
+          def api(method, url, payload=None):
+              data = None if payload is None else json.dumps(payload).encode()
+              request = urllib.request.Request(url, data=data, method=method, headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json',
+              })
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  result = json.load(response)
+              if not result.get('success'):
+                  raise RuntimeError('Cloudflare KV API request was unsuccessful')
+              return result
+
+          namespaces = api('GET', base).get('result', [])
+          matches = [item for item in namespaces if item.get('title') == 'mange-notification-images']
+          if matches:
+              namespace_id = matches[0]['id']
+          else:
+              created = api('POST', base, {'title': 'mange-notification-images'})
+              namespace_id = created.get('result', {}).get('id')
+          if not namespace_id or not all(character in '0123456789abcdef-' for character in namespace_id.lower()):
+              raise RuntimeError('Cloudflare returned an invalid KV namespace id')
+
+          config = Path('wrangler.toml').read_text(encoding='utf-8').rstrip()
+          config += f'\n\n[[kv_namespaces]]\nbinding = "NOTIFICATION_IMAGES"\nid = "{namespace_id}"\n'
+          Path('.wrangler.deploy.toml').write_text(config, encoding='utf-8')
+          print('Cloudflare KV namespace is ready and bound for deployment.')
+          PY
+
       - name: Deploy Worker code
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4"
-          command: deploy
+          command: deploy --config .wrangler.deploy.toml
 
       - name: Upload runtime secrets after deployment
         env:
@@ -101,7 +142,7 @@ jobs:
           with open('/tmp/mangerbackend-runtime-secrets.json', 'w', encoding='utf-8') as handle:
               json.dump({name: os.environ[name] for name in ('DATABASE_URL', 'ADMIN_JWT_SECRET', 'FCM_SERVICE_ACCOUNT_JSON', 'FCM_PUBLIC_SERVICE_ACCOUNT_JSON')}, handle)
           PY
-          npx --no-install wrangler versions secret bulk /tmp/mangerbackend-runtime-secrets.json
+          npx --no-install wrangler versions secret bulk /tmp/mangerbackend-runtime-secrets.json --config .wrangler.deploy.toml
           rm -f /tmp/mangerbackend-runtime-secrets.json
 
       - name: Integration test — verify Firebase Google auth route
