@@ -150,7 +150,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
        UNION ALL
        SELECT d.company_id, 'customer'::text AS audience,
          COALESCE(customer.phone, u.phone) AS whatsapp_phone, d.platform, d.app_version, d.last_seen_at,
-         NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country,
+         d.location_city, d.location_region, d.location_country,
          d.governorate, d.token AS fcm_token, d.enabled AS push_enabled,
          COALESCE(u.full_name, customer.full_name) AS contact_name, c.display_name AS store_name
        FROM app.device_tokens d

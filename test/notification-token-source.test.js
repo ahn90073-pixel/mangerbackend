@@ -7,7 +7,7 @@ const routes = readFileSync(new URL('../src/routes/notifications.js', import.met
 test('notification status and contacts include audience device tokens with governorate data', () => {
   assert.match(routes, /FROM app\.device_tokens/);
   assert.match(routes, /d\.company_id IS NULL/);
-  assert.match(routes, /NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country,[\s\S]*d\.governorate, d\.token AS fcm_token/);
+  assert.match(routes, /d\.location_city, d\.location_region, d\.location_country,[\s\S]*d\.governorate, d\.token AS fcm_token/);
   assert.match(routes, /d\.token AS fcm_token/);
   assert.match(routes, /CASE WHEN n\.audience = 'merchant' THEN n\.location_city ELSE NULL::text END AS location_city/);
   assert.match(routes, /CASE WHEN n\.audience = 'merchant' THEN n\.location_region ELSE NULL::text END AS location_region/);
