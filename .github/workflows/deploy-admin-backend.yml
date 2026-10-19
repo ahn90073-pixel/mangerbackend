@@ -90,7 +90,7 @@ jobs:
 
           account_id = os.environ['CLOUDFLARE_ACCOUNT_ID']
           token = os.environ['CLOUDFLARE_API_TOKEN']
-          base = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/storage/kv/namespaces'
+          kv_base = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/storage/kv/namespaces'
 
           def api(method, url, payload=None):
               data = None if payload is None else json.dumps(payload).encode()
@@ -104,12 +104,12 @@ jobs:
                   raise RuntimeError('Cloudflare KV API request was unsuccessful')
               return result
 
-          namespaces = api('GET', base).get('result', [])
+          namespaces = api('GET', kv_base).get('result', [])
           matches = [item for item in namespaces if item.get('title') == 'mange-notification-images']
           if matches:
               namespace_id = matches[0]['id']
           else:
-              created = api('POST', base, {'title': 'mange-notification-images'})
+              created = api('POST', kv_base, {'title': 'mange-notification-images'})
               namespace_id = created.get('result', {}).get('id')
           if not namespace_id or not all(character in '0123456789abcdef-' for character in namespace_id.lower()):
               raise RuntimeError('Cloudflare returned an invalid KV namespace id')

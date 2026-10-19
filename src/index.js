@@ -15,6 +15,7 @@ import auditLogRoutes from './routes/auditLogs.js';
 import storeRequestRoutes from './routes/storeRequests.js';
 import notificationRoutes from './routes/notifications.js';
 import { getNotificationImage } from './lib/notificationImages.js';
+import promotionRoutes from './routes/promotions.js';
 
 const app = new Hono();
 
@@ -44,6 +45,7 @@ app.get('/api/admin', ...superAdminGuard, (c) => c.json({
     '/api/admin/vendors',
     '/api/admin/orders',
     '/api/admin/notifications',
+    '/api/admin/promotions',
   ],
 }));
 app.route('/api/admin/auth', authRoutes);
@@ -56,6 +58,7 @@ app.route('/api/admin/orders', orderRoutes);
 app.route('/api/admin/audit-logs', auditLogRoutes);
 app.route('/api/admin/store-requests', storeRequestRoutes);
 app.route('/api/admin/notifications', notificationRoutes);
+app.route('/api/admin/promotions', promotionRoutes);
 
 app.notFound((c) => errorResponse('Route not found.', 404));
 app.onError((error, c) => {
