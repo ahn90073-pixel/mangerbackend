@@ -184,8 +184,19 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
     try {
       imageUrl = await uploadFirebaseNotificationImage(c.env, imageData, imageName, appName);
       if (!imageUrl) return errorResponse('تعذر تجهيز صورة الإشعار؛ استخدم PNG أو JPG أو WEBP بحجم أقل من 1.5 ميجابايت.', 400);
-    } catch {
-      return errorResponse('تعذر رفع صورة الإشعار إلى Firebase Storage.', 502);
+    } catch (error) {
+      const reason = String(error?.message || '');
+      if (reason === 'FIREBASE_STORAGE_BUCKET_NOT_FOUND') {
+        return errorResponse('تخزين صور Firebase غير مفعّل لهذا التطبيق بعد. أنشئ bucket في Firebase Storage ثم أعد المحاولة.', 503);
+      }
+      if (reason === 'FIREBASE_STORAGE_PERMISSION_DENIED') {
+        return errorResponse('حساب خدمة Firebase لا يملك صلاحية رفع الملفات. امنحه دور Storage Object Admin على bucket ثم أعد المحاولة.', 503);
+      }
+      if (reason === 'FIREBASE_STORAGE_AUTH_FAILED') {
+        return errorResponse('تعذر توثيق حساب خدمة Firebase لرفع الصورة. راجع إعداد FCM_SERVICE_ACCOUNT_JSON.', 503);
+      }
+      console.error('[notifications] Firebase Storage upload failed:', reason || 'unknown error');
+      return errorResponse('تعذر رفع صورة الإشعار إلى Firebase Storage. تحقق من تفعيل التخزين وصلاحية حساب الخدمة.', 502);
     }
   }
   const db = createDb(c.env);

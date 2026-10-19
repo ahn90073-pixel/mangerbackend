@@ -111,7 +111,12 @@ export async function uploadFirebaseNotificationImage(env, imageData, fileName =
     },
     body: payload,
   });
-  if (!response.ok) throw new Error('Firebase Storage image upload failed');
+  if (!response.ok) {
+    if (response.status === 404) throw new Error('FIREBASE_STORAGE_BUCKET_NOT_FOUND');
+    if (response.status === 403) throw new Error('FIREBASE_STORAGE_PERMISSION_DENIED');
+    if (response.status === 401) throw new Error('FIREBASE_STORAGE_AUTH_FAILED');
+    throw new Error(`FIREBASE_STORAGE_UPLOAD_FAILED_${response.status}`);
+  }
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(objectName)}?alt=media&token=${encodeURIComponent(downloadToken)}`;
 }
 
