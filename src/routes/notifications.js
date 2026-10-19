@@ -4,7 +4,7 @@ import { errorResponse, jsonResponse, ok } from '../lib/response.js';
 import { superAdminGuard } from '../middleware/adminAuth.js';
 import { isUuid, pagination, readJson } from '../lib/validation.js';
 import { isFcmConfigured, sendFcmNotification } from '../lib/fcm.js';
-import { storeNotificationImage } from '../lib/notificationImages.js';
+import { normalizeGovernorate } from '../lib/governorates.js';
 import { writeAudit } from '../lib/audit.js';
 
 const notifications = new Hono();
@@ -20,7 +20,21 @@ function validateCampaign(body) {
   if (body.companyId !== undefined && body.companyId !== null && !isUuid(body.companyId)) errors.push('معرّف المتجر غير صالح.');
   if (body.targetTokenRef !== undefined && body.targetTokenRef !== null && (typeof body.targetTokenRef !== 'string' || !/^[a-f0-9]{32}$/i.test(body.targetTokenRef))) errors.push('مرجع جهاز العميل غير صالح.');
   if (body.targetTokenRef && body.audience !== 'customer') errors.push('اختيار عميل محدد متاح لإشعارات الجمهور فقط.');
-  if (body.imageData !== undefined && body.imageData !== null && (typeof body.imageData !== 'string' || body.imageData.length > 2_100_000)) errors.push('صورة الإشعار غير صالحة أو حجمها أكبر من 1.5 ميجابايت.');
+  if (body.imageUrl !== undefined && body.imageUrl !== null) {
+    let imageUrl;
+    try {
+      imageUrl = new URL(body.imageUrl);
+    } catch {
+      imageUrl = null;
+    }
+    if (typeof body.imageUrl !== 'string' || imageUrl?.protocol !== 'https:' || imageUrl?.hostname !== 'res.cloudinary.com') {
+      errors.push('رابط صورة الإشعار يجب أن يكون رابط Cloudinary آمنًا.');
+    }
+  }
+  if (body.governorate !== undefined) {
+    if (body.audience !== 'customer') errors.push('فلترة المحافظة متاحة لإشعارات العملاء فقط.');
+    else if (body.governorate !== null && !normalizeGovernorate(body.governorate)) errors.push('المحافظة غير صالحة.');
+  }
   return errors;
 }
 
@@ -59,17 +73,31 @@ notifications.get('/status', ...superAdminGuard, async (c) => {
       GROUP BY audience
       ORDER BY audience`,
   );
-  const cityRows = await db.query(
-    `SELECT COALESCE(NULLIF(BTRIM(location_city), ''), 'غير محددة') AS city,
-       COALESCE(NULLIF(BTRIM(location_region), ''), '') AS region,
-       COALESCE(NULLIF(BTRIM(location_country), ''), '') AS country,
+  const governorateRows = await db.query(
+    `WITH source_tokens AS (
+       SELECT n.fcm_token AS token, n.governorate, n.last_seen_at
+       FROM public.notification_contacts n
+       WHERE n.audience = 'customer' AND n.app_name = 'online-store'
+         AND n.company_id IS NULL AND n.push_enabled IS TRUE
+         AND n.fcm_token IS NOT NULL AND n.fcm_token <> ''
+         AND NOT EXISTS (
+           SELECT 1 FROM app.device_tokens d WHERE d.company_id IS NULL AND d.token = n.fcm_token
+         )
+       UNION ALL
+       SELECT d.token, d.governorate, d.last_seen_at
+       FROM app.device_tokens d
+       WHERE d.company_id IS NULL AND d.enabled IS TRUE
+         AND d.token IS NOT NULL AND d.token <> ''
+     ), deduplicated_tokens AS (
+       SELECT DISTINCT ON (token) token, governorate
+       FROM source_tokens
+       ORDER BY token, last_seen_at DESC
+     )
+     SELECT COALESCE(NULLIF(BTRIM(governorate), ''), 'غير محددة') AS governorate,
        COUNT(*)::int AS tokens
-     FROM app.device_tokens
-     WHERE company_id IS NULL AND enabled IS TRUE
-       AND token IS NOT NULL AND token <> ''
-     GROUP BY 1, 2, 3
-     ORDER BY tokens DESC, city ASC, region ASC
-     LIMIT 8`,
+     FROM deduplicated_tokens
+     GROUP BY 1
+     ORDER BY tokens DESC, governorate ASC`,
   );
   const byAudience = { merchant: { total: 0, optedIn: 0, withToken: 0, readyToSend: 0 }, customer: { total: 0, optedIn: 0, withToken: 0, readyToSend: 0 } };
   for (const row of rows) {
@@ -86,10 +114,8 @@ notifications.get('/status', ...superAdminGuard, async (c) => {
       customer: isFcmConfigured(c.env, 'online-store'),
     },
     audiences: byAudience,
-    customerCities: cityRows.map((row) => ({
-      city: row.city,
-      region: row.region,
-      country: row.country,
+    customerGovernorates: governorateRows.map((row) => ({
+      governorate: row.governorate,
       tokens: Number(row.tokens || 0),
     })),
   }));
@@ -109,6 +135,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
          CASE WHEN n.audience = 'merchant' THEN n.location_city ELSE NULL::text END AS location_city,
          CASE WHEN n.audience = 'merchant' THEN n.location_region ELSE NULL::text END AS location_region,
          CASE WHEN n.audience = 'merchant' THEN n.location_country ELSE NULL::text END AS location_country,
+         n.governorate,
          n.fcm_token, n.push_enabled,
          u.full_name AS contact_name,
          COALESCE(NULLIF(n.company_name, ''), NULLIF(c.display_name, ''), c.legal_name) AS store_name
@@ -123,7 +150,8 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
        UNION ALL
        SELECT d.company_id, 'customer'::text AS audience,
          COALESCE(customer.phone, u.phone) AS whatsapp_phone, d.platform, d.app_version, d.last_seen_at,
-         d.location_city, d.location_region, d.location_country, d.token AS fcm_token, d.enabled AS push_enabled,
+         NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country,
+         d.governorate, d.token AS fcm_token, d.enabled AS push_enabled,
          COALESCE(u.full_name, customer.full_name) AS contact_name, c.display_name AS store_name
        FROM app.device_tokens d
        LEFT JOIN app.customers customer ON customer.id = d.customer_id
@@ -134,7 +162,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
          AND ($2::uuid IS NULL OR d.company_id = $2::uuid)
      )
      SELECT company_id, audience, whatsapp_phone, platform, app_version, last_seen_at,
-       location_city, location_region, location_country,
+       location_city, location_region, location_country, governorate,
        CASE WHEN fcm_token IS NOT NULL AND fcm_token <> '' THEN MD5(fcm_token) ELSE NULL END AS token_ref,
        (fcm_token IS NOT NULL AND fcm_token <> '') AS has_push_token,
        COALESCE(push_enabled, FALSE) AS push_enabled,
@@ -160,6 +188,7 @@ notifications.get('/contacts', ...superAdminGuard, async (c) => {
       locationCity: row.location_city || null,
       locationRegion: row.location_region || null,
       locationCountry: row.location_country || null,
+      governorate: row.governorate || null,
       tokenRef: row.token_ref || null,
       hasPushToken: Boolean(row.has_push_token),
       pushEnabled: Boolean(row.push_enabled),
@@ -174,25 +203,14 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
   const errors = validateCampaign(parsed.body);
   if (errors.length) return errorResponse('يرجى مراجعة بيانات الحملة.', 400, errors);
 
-  const { audience, title, body, companyId = null, targetTokenRef = null, imageData = null, imageName = 'notification-image' } = parsed.body;
+  const { audience, title, body, companyId = null, targetTokenRef = null, imageUrl = null } = parsed.body;
+  const governorate = audience === 'customer' && parsed.body.governorate !== undefined && parsed.body.governorate !== null
+    ? normalizeGovernorate(parsed.body.governorate)
+    : null;
   const appName = audience === 'customer' ? 'online-store' : 'taget';
   if (!isFcmConfigured(c.env, appName)) {
     const secretName = audience === 'customer' ? 'FCM_PUBLIC_SERVICE_ACCOUNT_JSON' : 'FCM_SERVICE_ACCOUNT_JSON';
     return errorResponse(`${secretName} غير مهيأ؛ أضف اعتماد Firebase الخاص بهذا التطبيق قبل الإرسال.`, 503);
-  }
-  let imageUrl = null;
-  if (imageData) {
-    try {
-      imageUrl = await storeNotificationImage(c.env, imageData, imageName, new URL(c.req.url).origin);
-      if (!imageUrl) return errorResponse('تعذر تجهيز الصورة؛ استخدم PNG أو JPG أو WEBP بحجم أقل من 1.5 ميجابايت.', 400);
-    } catch (error) {
-      const reason = String(error?.message || '');
-      if (reason === 'NOTIFICATION_IMAGE_KV_NOT_CONFIGURED') {
-        return errorResponse('مخزن صور Cloudflare KV غير مربوط بالخادم بعد. لم يتم إرسال الحملة.', 503);
-      }
-      console.error('[notifications] Cloudflare KV image upload failed:', reason || 'unknown error');
-      return errorResponse('تعذر رفع الصورة إلى Cloudflare KV. لم يتم إرسال الحملة.', 502);
-    }
   }
   const db = createDb(c.env);
   const rows = await db.query(
@@ -205,6 +223,7 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
          AND fcm_token IS NOT NULL AND fcm_token <> ''
          AND ($3::uuid IS NULL OR company_id = $3::uuid)
          AND ($4::text IS NULL OR MD5(fcm_token) = $4::text)
+         AND ($5::text IS NULL OR n.governorate = $5::text)
        UNION
        SELECT d.token AS fcm_token
        FROM app.device_tokens d
@@ -215,15 +234,16 @@ notifications.post('/send', ...superAdminGuard, async (c) => {
          AND d.token IS NOT NULL AND d.token <> ''
          AND ($3::uuid IS NULL OR d.company_id = $3::uuid)
          AND ($4::text IS NULL OR MD5(d.token) = $4::text)
+         AND ($5::text IS NULL OR d.governorate = $5::text)
      )
      SELECT DISTINCT fcm_token FROM candidates
      WHERE fcm_token IS NOT NULL AND fcm_token <> ''
      LIMIT ${MAX_TOKENS_PER_SEND}`,
-    [audience, appName, companyId, targetTokenRef],
+    [audience, appName, companyId, targetTokenRef, governorate],
   );
   const tokens = rows.map((row) => row.fcm_token).filter(Boolean);
   const result = await sendFcmNotification(c.env, tokens, { title: title.trim(), body: body.trim(), imageUrl, appName });
-  const summary = { audience, companyId, total: tokens.length, sent: result.sent, failed: result.failed };
+  const summary = { audience, companyId, governorate, total: tokens.length, sent: result.sent, failed: result.failed };
   await safeAudit(db, c, 'notification.send', summary);
   return jsonResponse(ok(summary, result.failed ? 'اكتمل الإرسال مع وجود إخفاقات.' : 'تم إرسال الإشعار.'));
 });

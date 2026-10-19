@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs';
 
 const routes = readFileSync(new URL('../src/routes/notifications.js', import.meta.url), 'utf8');
 
-test('notification status and contacts include audience device tokens from the public backend table', () => {
+test('notification status and contacts include audience device tokens with governorate data', () => {
   assert.match(routes, /FROM app\.device_tokens/);
   assert.match(routes, /d\.company_id IS NULL/);
-  assert.match(routes, /d\.location_city, d\.location_region, d\.location_country/);
+  assert.match(routes, /NULL::text AS location_city, NULL::text AS location_region, NULL::text AS location_country,[\s\S]*d\.governorate, d\.token AS fcm_token/);
   assert.match(routes, /d\.token AS fcm_token/);
   assert.match(routes, /CASE WHEN n\.audience = 'merchant' THEN n\.location_city ELSE NULL::text END AS location_city/);
   assert.match(routes, /CASE WHEN n\.audience = 'merchant' THEN n\.location_region ELSE NULL::text END AS location_region/);
@@ -16,12 +16,14 @@ test('notification status and contacts include audience device tokens from the p
   assert.match(routes, /companyName: row\.store_name/);
 });
 
-test('notification status summarizes enabled customer tokens by approximate city without returning token values', () => {
+test('notification status summarizes enabled customer tokens by governorate without returning token values', () => {
   const statusRoute = routes.slice(routes.indexOf("notifications.get('/status'"), routes.indexOf("notifications.get('/contacts'"));
-  assert.match(statusRoute, /COALESCE\(NULLIF\(BTRIM\(location_city\)/);
+  assert.match(statusRoute, /COALESCE\(NULLIF\(BTRIM\(governorate\)/);
+  assert.match(statusRoute, /FROM public\.notification_contacts n/);
   assert.match(statusRoute, /FROM app\.device_tokens/);
-  assert.match(statusRoute, /company_id IS NULL AND enabled IS TRUE/);
-  assert.match(statusRoute, /customerCities: cityRows\.map/);
+  assert.match(statusRoute, /SELECT DISTINCT ON \(token\) token, governorate/);
+  assert.match(statusRoute, /d\.company_id IS NULL AND d\.enabled IS TRUE/);
+  assert.match(statusRoute, /customerGovernorates: governorateRows\.map/);
   assert.match(statusRoute, /tokens: Number\(row\.tokens/);
   assert.doesNotMatch(statusRoute, /SELECT\s+fcm_token\s+FROM app\.device_tokens/);
 });
@@ -36,6 +38,13 @@ test('customer campaigns send to enabled public app device tokens and preserve l
   assert.match(sendRoute, /UNION[\s\S]*FROM app\.device_tokens/);
   assert.match(sendRoute, /d\.enabled IS TRUE/);
   assert.match(sendRoute, /\$3::uuid IS NULL/);
+});
+
+test('customer campaign filtering uses a parameterized governorate for both token sources', () => {
+  const sendRoute = routes.slice(routes.indexOf("notifications.post('/send'"));
+  assert.match(sendRoute, /\$5::text IS NULL OR n\.governorate = \$5::text/);
+  assert.match(sendRoute, /\$5::text IS NULL OR d\.governorate = \$5::text/);
+  assert.match(sendRoute, /companyId, targetTokenRef, governorate/);
 });
 
 test('customer campaigns can be restricted to one opaque device reference without exposing full tokens', () => {
